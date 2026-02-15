@@ -1,0 +1,317 @@
+function AIUTO_RAPIDO() {
+  const ui = SpreadsheetApp.getUi();
+
+  const msg =
+`📦 AIUTO RAPIDO — USO QUOTIDIANO
+================================
+
+✅ 1) DOVE SI LAVORA
+-------------------
+• Il lavoro di tutti i giorni si fa in: "Settimana Attiva"
+• Ogni giorno ha 2 colonne:
+  - Colonna NOME fornitore
+  - Colonna CHECKBOX "Partito" (a fianco)
+• Usa SOLO le righe da 3 a 20.
+➡️ Le righe sotto sono bloccate automaticamente.
+
+✅ 2) INSERIRE UN FORNITORE
+--------------------------
+• Scrivi il nome del fornitore nella colonna NOME del giorno giusto.
+➡️ La checkbox viene creata automaticamente solo se c’è un nome.
+
+✅ 3) FORNITORE “NON IN PARTENZA”
+--------------------------------
+• Se un fornitore NON deve partire, scrivilo iniziando con:
+  - "- " (trattino + spazio)
+Esempio: "- RHIAG"
+➡️ In quel caso la checkbox NON è spuntabile (è bloccata apposta).
+
+✅ 4) SPUNTARE “PARTITO”
+-----------------------
+• Spunta la checkbox SOLO quando il fornitore è davvero partito.
+• Non è possibile spuntare giorni futuri.
+• Se togli una spunta già data, viene chiesta conferma.
+
+⚠️ 5) MODIFICHE SU GIORNI PASSATI
+---------------------------------
+• Se scrivi o modifichi un giorno PASSATO, compare sempre un popup.
+➡️ Serve per evitare modifiche accidentali nello storico.
+
+✅ 6) COSA VEDERE A COLPO D’OCCHIO
+---------------------------------
+• Il giorno corrente è evidenziato.
+• I giorni “CHIUSI” (da Impostazioni) sono marcati.
+• In alto a destra:
+  - N3 = STATO SISTEMA
+  - N4 = AZIONE DA FARE (se serve)
+  - N5 = LINK (solo se necessario)
+
+============================================================
+📦 GESTIONE SETTIMANA — FUNZIONI (MENU PER TUTTI)
+============================================================
+
+👉 CREARE "PROSSIMA SETTIMANA"
+-----------------------------
+• Vai su "Settimana Attiva"
+• SPUNTA la checkbox in N2
+➡️ Risultato:
+   - viene creato il foglio "Prossima settimana"
+   - N1 cambia stato (✅ pronta)
+   - N5 mostra il link per aprirla
+   - N2 resta spuntata finché Prossima settimana esiste
+
+📦 ARCHIVIARE LA SETTIMANA
+--------------------------
+Menu: 📦 Gestione Settimana → 📦 Archivia settimana
+➡️ Risultato:
+   - salva nello storico (solo per controllo)
+   - aggiorna la Settimana Attiva
+   - Prossima settimana viene eliminata (se presente)
+   - stato sistema torna OK
+
+🗑️ ELIMINARE "PROSSIMA SETTIMANA" (FORZATO)
+-------------------------------------------
+Menu: 📦 Gestione Settimana → 🧨 Elimina Prossima settimana (FORZATO)
+➡️ Risultato:
+   - foglio eliminato
+   - N1 e N2 tornano allo stato base
+   - eventuali link spariscono
+
+👤 LOG OPERATIVO - UTENTE
+-------------------------
+Menu: 📦 Gestione Settimana → 👤 Imposta mio nome (Log)
+• Serve per identificare chi fa le operazioni.
+• Usalo se nel Log compare "Utente non rilevabile".
+
+🩺 HEALTHCHECK VISIVO
+---------------------
+Menu: 📦 Gestione Settimana → 🩺 Healthcheck visivo
+• Ripara automaticamente:
+  - intestazioni
+  - evidenze del giorno
+  - stato Prossima settimana
+• Il controllo viene fatto anche in automatico.
+
+------------------------------------------------------------
+🔧 NOTA
+------------------------------------------------------------
+• Esiste anche un menu "🔧 Tecnico" con funzioni di manutenzione.
+• Di norma NON serve per il lavoro quotidiano.
+`;
+
+  ui.alert("📦 Aiuto rapido", msg, ui.ButtonSet.OK);
+}
+
+function HEALTHCHECK_VISIVO_MANUALE() {
+  HEALTHCHECK_VISIVO();
+  SpreadsheetApp.getActive().toast("Healthcheck visivo completato ✅", "Gestione Settimana", 4);
+}
+
+function _hcWriteLastRun_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("Settimana Attiva");
+  if (!sh) return;
+
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+  const stamp = Utilities.formatDate(now, tz, "dd/MM HH:mm");
+
+  const cell = sh.getRange("N19");
+  cell
+    .setValue(`🕒 Ultimo controllo: ${stamp}`)
+    .setFontSize(10)              // ✅ FONT 10
+    .setFontStyle("italic")
+    .setFontWeight("normal")
+    .setFontColor("#666666")
+    .setBackground("#ffffff")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+}
+
+function _hcUpdateCounters_(hadInterventions) {
+  const props = PropertiesService.getDocumentProperties();
+
+  const tz = Session.getScriptTimeZone();
+  const todayKey = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+
+  if (props.getProperty("HC_LAST_DAY") !== todayKey) {
+    props.setProperty("HC_LAST_DAY", todayKey);
+    props.setProperty("HC_TODAY", "0");
+  }
+
+  let today = Number(props.getProperty("HC_TODAY") || 0);
+  let total = Number(props.getProperty("HC_TOTAL") || 0);
+
+  if (hadInterventions) {
+    today++;
+    total++;
+    props.setProperty("HC_TODAY", String(today));
+    props.setProperty("HC_TOTAL", String(total));
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("Settimana Attiva");
+  if (!sh) return;
+
+  const cell = sh.getRange("N20");
+  cell
+    .setValue(`📊 Interventi oggi: ${today} | Totale: ${total}`)
+    .setFontSize(10)              // ✅ FONT 10
+    .setFontStyle("italic")
+    .setFontWeight("normal")
+    .setFontColor("#666666")
+    .setBackground("#f3f3f3")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+}
+
+/****************************************************
+ * ONOPEN ROBUSTO: menu subito + healthcheck differito
+ ****************************************************/
+
+function onOpen(e) {
+  // 1) Menu SEMPRE per primi
+  try { BUILD_MENUS_(); } catch (err) {}
+
+  // 2) Pianifica healthcheck differito (non blocca i menu)
+  try { _SCHEDULE_HEALTHCHECK_AFTER_OPEN_(); } catch (err) {}
+}
+
+/**
+ * Crea un trigger "usa e getta" che esegue il healthcheck dopo ~45s.
+ * Evita duplicati con una property.
+ */
+function _SCHEDULE_HEALTHCHECK_AFTER_OPEN_() {
+  const props = PropertiesService.getDocumentProperties();
+  const key = "HC_DEFERRED_PENDING";
+  if (props.getProperty(key) === "1") return; // già pianificato
+
+  // segna pending
+  props.setProperty(key, "1");
+
+  // crea trigger una tantum tra 45 secondi
+  ScriptApp.newTrigger("_RUN_HEALTHCHECK_DEFERRED_")
+    .timeBased()
+    .after(45 * 1000)
+    .create();
+}
+
+/**
+ * Esegue healthcheck e poi:
+ * - ripristina UI protette
+ * - ripara N18/checkbox se necessario
+ * - rimuove il trigger che l’ha chiamata
+ * - toglie la flag pending
+ */
+function _RUN_HEALTHCHECK_DEFERRED_() {
+  const props = PropertiesService.getDocumentProperties();
+  const key = "HC_DEFERRED_PENDING";
+
+  try {
+    // Healthcheck principale
+    try { HEALTHCHECK_VISIVO(); } catch (e) {}
+
+    // Ripristini UI colonna N
+    try { UI_RIPRISTINA_CELLE_N_PROTETTE_(); } catch (e) {}
+
+    // Ripara validazioni checkbox (N18 + tabella) se si sono sporcate
+    try { RIPARA_VALIDAZIONI_CHECKBOX_HARD_(); } catch (e) {}
+
+  } finally {
+    // clear pending
+    try { props.deleteProperty(key); } catch (e) {}
+
+    // autodistrugge i trigger di questa funzione (così non si accumulano)
+    try {
+      const all = ScriptApp.getProjectTriggers();
+      for (const t of all) {
+        if (t.getHandlerFunction && t.getHandlerFunction() === "_RUN_HEALTHCHECK_DEFERRED_") {
+          ScriptApp.deleteTrigger(t);
+        }
+      }
+    } catch (e) {}
+  }
+}
+
+/****************************************************
+ * RIPARAZIONE HARD VALIDAZIONI CHECKBOX
+ * - Risolve "Invalid: violates validation rule" su N18
+ * - Se per errore la validazione checkbox è finita in L3 (o altrove),
+ *   pulisce A3:L20 e ricostruisce le checkbox coerenti ai nomi.
+ ****************************************************/
+function RIPARA_VALIDAZIONI_CHECKBOX_HARD_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ["Settimana Attiva", "Prossima settimana"];
+
+  for (const name of sheets) {
+    const sh = ss.getSheetByName(name);
+    if (!sh) continue;
+
+    // 1) N18: deve essere SOLO checkbox, senza validazioni "strane"
+    try {
+      const c = sh.getRange("N18");
+      c.clearContent();
+      c.clearDataValidations();
+      c.insertCheckboxes();
+      c.setValue(false);
+      c.setHorizontalAlignment("center").setVerticalAlignment("middle");
+    } catch (e) {}
+
+    // 2) Tabella A3:L20: se una checkbox-validation è finita in celle sbagliate (es. L3),
+    //    puliamo tutte le data validations e ricostruiamo SOLO le checkbox corrette.
+    try {
+      sh.getRange("A3:L20").clearDataValidations();
+      // ricostruisce checkbox e lascia vuote dove nome vuoto
+      if (typeof MINI_FIX_FORMAT_TAB_FORNITORI_ === "function") {
+        // la tua funzione agisce su entrambe: ok, ma qui siamo già nel loop.
+        // Se preferisci, commenta la riga sotto e lascia solo il rebuild manuale.
+        MINI_FIX_FORMAT_TAB_FORNITORI_();
+      } else {
+        _REBUILD_CHECKBOXES_FROM_NAMES_(sh);
+      }
+    } catch (e) {}
+  }
+}
+
+/**
+ * Fallback se MINI_FIX_FORMAT_TAB_FORNITORI_ non esiste:
+ * ricostruisce le checkbox in B/D/F/H/J/L in base ai nomi A/C/E/G/I/K.
+ */
+function _REBUILD_CHECKBOXES_FROM_NAMES_(sh) {
+  const COL_NOMI = [1, 3, 5, 7, 9, 11];
+  const COL_CK   = [2, 4, 6, 8, 10, 12];
+  const START_ROW = 3;
+  const NUM_ROWS = 18; // 3..20
+
+  for (let i = 0; i < COL_NOMI.length; i++) {
+    const colNome = COL_NOMI[i];
+    const colCk = COL_CK[i];
+
+    const nomi = sh.getRange(START_ROW, colNome, NUM_ROWS, 1).getValues();
+    const ckRange = sh.getRange(START_ROW, colCk, NUM_ROWS, 1);
+    const ckVals = ckRange.getValues();
+
+    for (let r = 0; r < NUM_ROWS; r++) {
+      const rawNome = nomi[r][0];
+      const nomeTxt = String(rawNome ?? "").replace(/\u00A0/g, " ").trim();
+      const cellCk = sh.getRange(START_ROW + r, colCk);
+
+      if (!nomeTxt) {
+        cellCk.clearContent();
+        cellCk.clearDataValidations();
+        continue;
+      }
+
+      cellCk.clearDataValidations();
+      cellCk.insertCheckboxes();
+
+      if (typeof _isNoPartenza_ === "function" && _isNoPartenza_(rawNome)) {
+        cellCk.setValue(false);
+      } else {
+        cellCk.setValue(ckVals[r][0] === true);
+      }
+    }
+  }
+}
+
+function _TEST_COMPILE_(){ return 1; }

@@ -1,0 +1,247 @@
+/****************************************************
+ * FILE TECNICO
+ * Funzioni di manutenzione, backup, test e verifica
+ * NON usate nel lavoro quotidiano
+ ****************************************************/
+
+function BONIFICA_EVIDENZA_OGGI() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName("Settimana Attiva");
+  if (!sh) return;
+
+  // 1) Pulizia aggressiva: elimina colori "incollati" in A2:L20
+  // (non tocca contenuti)
+  sh.getRange("A2:L20").setBackground(null);
+
+  // 2) Rimette a posto CF vitali + UI N1/N2/N3 + riparazioni leggere
+  HEALTHCHECK_VISIVO();
+
+  // 3) Cintura + bretelle: regola "OGGI" con priorità alta
+  RIPRISTINA_EVIDENZIA_OGGI();
+
+  try { ss.toast("Bonifica fatta ✅", "Tecnico", 4); } catch (e) {}
+}
+
+/**
+ * Backup manuale immediato
+ */
+function MANUALE_Backup_Crea() {
+  const info = creaBackupPrimaDiArchiviazione_();
+  SpreadsheetApp.getUi().alert("Backup creato:\n\n" + info.name);
+}
+
+/**
+ * Pulisce backup vecchi (mantiene ultimi 60)
+ */
+function MANUALE_Backup_Pulisci60() {
+  pulisciBackupVecchi_(60);
+  SpreadsheetApp.getUi().alert("Pulizia backup completata (ultimi 60 mantenuti).");
+}
+
+/**
+ * Info ultimo backup
+ */
+function MANUALE_Backup_InfoUltimo() {
+  const props = PropertiesService.getDocumentProperties();
+  const name = props.getProperty("last_backup_name") || "(nessuno)";
+  const time = props.getProperty("last_backup_time");
+  const when = time ? new Date(Number(time)).toLocaleString("it-IT") : "(n/a)";
+  SpreadsheetApp.getUi().alert(
+    "Ultimo backup:\n\nNome: " + name + "\nQuando: " + when
+  );
+}
+
+function TECNICO_ProteggiTemplateSettimana() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName("TemplateSettimana");
+  if (!sh) throw new Error("Manca TemplateSettimana");
+
+  const ranges = ["A3:A20","C3:C20","E3:E20","G3:G20","I3:I20","K3:K20"];
+  const rngList = sh.getRangeList(ranges);
+
+  const me = Session.getEffectiveUser().getEmail();
+  const protections = rngList.getRanges().map(r => r.protect());
+
+  protections.forEach(p => {
+    p.setDescription("Protezione NOMI template");
+    try { p.removeEditors(p.getEditors()); } catch(e) {}
+    if (me) { try { p.addEditor(me); } catch(e) {} }
+    try { p.setDomainEdit(false); } catch(e) {}
+  });
+
+  SpreadsheetApp.getActive().toast("✅ TemplateSettimana protetto (celle NOMI)", "Tecnico", 4);
+}
+
+/****************************************************
+ * FIX HARD VALIDAZIONI UI (N18 + eventuali “contagi” tipo L3)
+ * - Ripulisce data validation “sbagliate”
+ * - Ricrea N18 come checkbox pulita
+ ****************************************************/
+function TECNICO_FIX_VALIDAZIONI_UI_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("Settimana Attiva");
+  if (!sh) return SpreadsheetApp.getUi().alert("Manca 'Settimana Attiva'.");
+
+  // 1) Pulisci eventuali validazioni “sporche” su N18 e L3
+  // (L3 lo cito perché hai visto l’errore apparire lì)
+  const targets = ["N18", "L3"];
+  for (const a1 of targets) {
+    try {
+      const cell = sh.getRange(a1);
+      cell.clearDataValidations();
+
+      // Se era rimasto un valore “strano” dentro, puliscilo
+      // (NON facciamo clearFormat per non rovinare il foglio)
+      const v = cell.getValue();
+      if (v !== "" && v !== true && v !== false) cell.clearContent();
+    } catch (e) {}
+  }
+
+  // 2) Ricrea N18 come checkbox “pulita”
+  try {
+    const n18 = sh.getRange("N18");
+    n18.clearDataValidations();
+    n18.clearContent();
+    n18.insertCheckboxes();
+    n18.setValue(false);
+    n18.setHorizontalAlignment("center").setVerticalAlignment("middle");
+  } catch (e) {}
+
+  SpreadsheetApp.getActive().toast("Fix validazioni UI completato ✅", "Tecnico", 4);
+}
+
+function TECNICO_RipristinoCompletoAttiva() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName("Settimana Attiva");
+  if (!sh) throw new Error("Manca Settimana Attiva");
+
+  try { garantisciStruttura(); } catch(e) {}
+  try { HEALTHCHECK_VISIVO(); } catch(e) {}
+  try { RIPRISTINA_EVIDENZIA_OGGI(); } catch(e) {}
+  try { AGGIORNA_HEADER_OGGI_SAFE_(); } catch(e) {}
+  try { _cbClearRange_("Settimana Attiva", 3, 20, [2,4,6,8,10,12]); } catch(e) {}
+
+  try {
+    const pairs = [
+      { n:1, c:2 }, { n:3, c:4 }, { n:5, c:6 }, { n:7, c:8 }, { n:9, c:10 }, { n:11, c:12 },
+    ];
+    const startRow = 3, endRow = 20;
+    for (const p of pairs) {
+      const names = sh.getRange(startRow, p.n, endRow-startRow+1, 1).getValues();
+      for (let i = 0; i < names.length; i++) {
+        const row = startRow + i;
+        const raw = names[i][0];
+        const txt = _normNome_(raw);
+        const cb = sh.getRange(row, p.c);
+
+        if (txt) cb.insertCheckboxes();
+        else { cb.clearContent(); cb.clearDataValidations(); }
+      }
+    }
+  } catch(e) {}
+
+  SpreadsheetApp.flush();
+  ss.toast("✅ Ripristino completo fatto", "Tecnico", 5);
+}
+
+/**
+ * Storico: prepara foglio
+ */
+function MANUALE_Storico_Prepara() {
+  const sh = getStoricoSettimane_();
+  SpreadsheetApp.getUi().alert("Storico pronto: '" + sh.getName() + "'.");
+}
+
+/**
+ * Storico: scrive intestazione manuale
+ */
+function MANUALE_Storico_ScriviIntestazione() {
+  const ss = SpreadsheetApp.getActive();
+  const attiva = ss.getSheetByName("Settimana Attiva");
+  if (!attiva) return SpreadsheetApp.getUi().alert("Manca 'Settimana Attiva'.");
+
+  const dataBase = attiva.getRange("M2").getValue();
+  if (!(dataBase instanceof Date)) return SpreadsheetApp.getUi().alert("M2 non è una data valida.");
+
+  const storico = getStoricoSettimane_();
+  scriviIntestazioneArchiviazione_(storico, dataBase);
+  SpreadsheetApp.getUi().alert("Intestazione storico scritta.");
+}
+
+/**
+ * Test giornata email
+ */
+function MANUALE_Email_TestGiornataConsente() {
+  const ok = giornataConsenteEmail();
+  SpreadsheetApp.getUi().alert(ok ? "✅ Oggi CONSENTE email" : "⛔ Oggi BLOCCA email");
+}
+
+function MANUT_Backup_Pulisci60_() {
+  pulisciBackupVecchi_(60);
+  SpreadsheetApp.getUi().alert("Pulizia backup completata (ultimi 60 mantenuti).");
+}
+
+function MANUT_Backup_InfoUltimo_() {
+  const props = PropertiesService.getDocumentProperties();
+  const name = props.getProperty("last_backup_name") || "(nessuno)";
+  const time = props.getProperty("last_backup_time");
+  const when = time ? new Date(Number(time)).toLocaleString("it-IT") : "(n/a)";
+  SpreadsheetApp.getUi().alert("Ultimo backup:\n\nNome: " + name + "\nQuando: " + when);
+}
+
+function MANUT_Email_TestGiornataConsente_() {
+  const ok = giornataConsenteEmail();
+  SpreadsheetApp.getUi().alert(ok ? "✅ Oggi CONSENTE email" : "⛔ Oggi BLOCCA email");
+}
+
+function MANUT_Storico_ScriviIntestazione_() {
+  const ss = SpreadsheetApp.getActive();
+  const attiva = ss.getSheetByName("Settimana Attiva");
+  if (!attiva) return SpreadsheetApp.getUi().alert("Manca 'Settimana Attiva'.");
+
+  const dataBase = attiva.getRange("M2").getValue();
+  if (!(dataBase instanceof Date)) return SpreadsheetApp.getUi().alert("M2 non è una data valida.");
+
+  const storico = getStoricoSettimane_();
+  scriviIntestazioneArchiviazione_(storico, dataBase);
+  SpreadsheetApp.getUi().alert("Intestazione storico scritta.");
+}
+
+function BUILD_MENUS_() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu("TEST")
+    .addItem("Ping", "PING_")
+    .addToUi();
+}
+
+function BUILD_MENUS_() {
+  const ui = SpreadsheetApp.getUi();
+
+  ui.createMenu("📦 Gestione Settimana")
+    .addItem("➕ Crea prossima settimana", "richiediCreazioneProssimaSettimana")
+    .addItem("📦 Archivia settimana", "archiviaSettimana")
+    .addItem("🧨 Elimina Prossima settimana (FORZATO)", "ELIMINA_PROSSIMA_SETTIMANA_FORZATA")
+    .addSeparator()
+    .addItem("👤 Imposta mio nome (Log)", "IMPOSTA_MIO_NOME_LOG")
+    .addItem("🩺 Healthcheck visivo", "HEALTHCHECK_VISIVO")
+    .addItem("🧽 Mini-fix formattazione tabella", "MINI_FIX_FORMAT_TAB_FORNITORI_")
+    .addItem("❓ Aiuto rapido", "AIUTO_RAPIDO")
+    .addToUi();
+
+  ui.createMenu("🔧 Tecnico")
+    .addItem("💾 Backup immediato", "creaBackupPrimaDiArchiviazione_")
+    .addItem("🧹 Pulisci backup vecchi (60)", "MANUT_Backup_Pulisci60_")
+    .addItem("ℹ️ Info ultimo backup", "MANUT_Backup_InfoUltimo_")
+    .addSeparator()
+    .addItem("📚 Prepara storico", "getStoricoSettimane_")
+    .addItem("📝 Scrivi intestazione storico", "MANUT_Storico_ScriviIntestazione_")
+    .addSeparator()
+    .addItem("📧 Test: giornata consente email?", "MANUT_Email_TestGiornataConsente_")
+    .addSeparator()
+    .addItem("🔧 Ripara struttura fogli", "garantisciStruttura")
+    .addItem("🧽 Bonifica evidenza OGGI", "BONIFICA_EVIDENZA_OGGI")
+    .addItem("☑️ Fix checkbox Template", "FIX_CHECKBOX_TEMPLATE")
+    .addItem("🔒 Proteggi TemplateSettimana", "TECNICO_ProteggiTemplateSettimana")
+    .addItem("🧯 Ripristino completo Attiva", "TECNICO_RipristinoCompletoAttiva")
+    .addToUi();
+}
