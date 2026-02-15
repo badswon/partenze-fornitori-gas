@@ -313,5 +313,3 @@ function _REBUILD_CHECKBOXES_FROM_NAMES_(sh) {
     }
   }
 }
-
-function _TEST_COMPILE_(){ return 1; }
