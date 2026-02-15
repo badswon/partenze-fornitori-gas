@@ -1,4 +1,4 @@
-/**************
+  /**************
  * CONFIG
  **************/
 const DEBUG_TOAST = false;
@@ -577,20 +577,15 @@ function garantisciStruttura() {
 
   // 7) Nascondi sempre il template (non lo eliminiamo)
   try { template.hideSheet(); } catch (e) {}
+  try { _NASCONDI_FUORI_AREA_("Settimana Attiva"); } catch(e) {}
+  try { _NASCONDI_FUORI_AREA_("Prossima settimana"); } catch(e) {}
 }
 
-function _setBgCheckboxCorretto_(sheetName, sh, row, colCheckbox) {
+function _setBgCheckboxCorretto_(sheetName, sh, r, cCheckbox) {
   try {
-    // In Prossima settimana: sfondo checkbox = sfondo della cella NOME a sinistra
-    if (sheetName === "Prossima settimana") {
-      const cbCell = sh.getRange(row, colCheckbox);
-      const left = sh.getRange(row, colCheckbox - 1);
-      cbCell.setBackground(left.getBackground());
-      return;
-    }
-
-    // In Settimana Attiva: NON tocchiamo sfondi via script
-    // (gestito da formattazione condizionale)
+    // la cella nome è sempre a sinistra della checkbox
+    const bg = sh.getRange(r, cCheckbox - 1).getBackground();
+    sh.getRange(r, cCheckbox).setBackground(bg);
   } catch (e) {}
 }
 
@@ -626,11 +621,8 @@ function _resetSfondoFornitoriAttiva_(sh) {
   if (even.length) sh.getRangeList(even).setBackground("#f3f3f3");
 }
 
-/**********************
- * ON EDIT
- **********************/
 function onEdit(e) {
-  if (!e) return;
+  if (!e || !e.range) return;
 
   // ✅ N18 AIUTO RAPIDO: gestiscila SEMPRE per prima e STOP
   if (_handleAiutoRapidoN18_(e)) return;
@@ -652,14 +644,14 @@ function onEdit(e) {
   // =========================
   // BLOCCO HARD multi-cella sulla tabella fornitori (A3:L20)
   // =========================
-  const rr = e.range;
-  const numCells = rr.getNumRows() * rr.getNumColumns();
+  const rr0 = e.range;
+  const numCells0 = rr0.getNumRows() * rr0.getNumColumns();
 
-  if (["Settimana Attiva", "Prossima settimana"].includes(nome) && numCells >= 2) {
-    if (_rangeInterseca_(rr, "A3:L20")) {
+  if (["Settimana Attiva", "Prossima settimana"].includes(nome) && numCells0 >= 2) {
+    if (_rangeInterseca_(rr0, "A3:L20")) {
       try {
         const userKey = (typeof _getUserKeyForCounters_ === "function") ? _getUserKeyForCounters_() : "";
-        _logSafe_("BLOCCO MULTI-CELLA (FORNITORI)", `${nome}!${rr.getA1Notation()} | cells=${numCells}`, nome, userKey);
+        _logSafe_("BLOCCO MULTI-CELLA (FORNITORI)", `${nome}!${rr0.getA1Notation()} | cells=${numCells0}`, nome, userKey);
       } catch (e2) {}
 
       ui.alert(
@@ -674,8 +666,8 @@ function onEdit(e) {
       return; // STOP totale
     }
   }
-  
-    try {
+
+  try {
     // 🔒 TEMPLATE: le checkbox NON devono mai essere spuntabili
     if (nome === "TemplateSettimana") {
       const isCheckboxCol = [2, 4, 6, 8, 10, 12].includes(c);
@@ -685,6 +677,7 @@ function onEdit(e) {
         e.range.clearContent();
         e.range.insertCheckboxes();
         e.range.setValue(false);
+        _setBgCheckboxCorretto_(nome, sh, r, c);
         return;
       }
     }
@@ -697,7 +690,8 @@ function onEdit(e) {
     } catch (err) {}
 
     try { garantisciStruttura(); } catch (e2) {}
-    try { UI_ONEDIT_CELLE_N_PROTETTE_(e); } catch (e) {}
+
+    // Se sei sopra la tabella fornitori, esci
     if (r < 3) return;
 
     // =========================
@@ -709,48 +703,46 @@ function onEdit(e) {
     const COLONNE_INTERESSATE = [...COLONNE_NOMI, ...COLONNE_CHECKBOX];
 
     // Range edit (anche multiplo: incolla / drag)
-    const rr = e.range;
-    const r1 = rr.getRow();
-    const c1 = rr.getColumn();
-    const nr = rr.getNumRows();
-    const nc = rr.getNumColumns();
+    const rrEdit = e.range;                 // ✅ rinominato (prima era rr)
+    const r1 = rrEdit.getRow();
+    const c1 = rrEdit.getColumn();
+    const nr = rrEdit.getNumRows();
+    const nc = rrEdit.getNumColumns();
     const r2 = r1 + nr - 1;
     const c2 = c1 + nc - 1;
 
     // OK se il range resta ENTRO la tabella (r2 <= RIGA_MAX)
     if (r2 > RIGA_MAX) {
-      // Calcola l’overlap colonne con quelle “gestite”
       const touchedManagedCols = COLONNE_INTERESSATE.some(col => col >= c1 && col <= c2);
 
-      // Solo se tocca colonne gestite
       if (touchedManagedCols) {
-        const userKey = _getUserKeyForCounters_();
-        const count = _incContatoreFuoriArea_(userKey);
+        const userKey = (typeof _getUserKeyForCounters_ === "function") ? _getUserKeyForCounters_() : "";
+        const count = (typeof _incContatoreFuoriArea_ === "function") ? _incContatoreFuoriArea_(userKey) : 999;
 
-        // LOG SEMPRE (con tipo azione stimato)
         try {
-          const a1r = rr.getA1Notation();
+          const a1r = rrEdit.getA1Notation();
           const v = (typeof e.value !== "undefined") ? String(e.value) : "";
           const tipo = (nr === 1 && nc === 1) ? "EDIT" : "PASTE/DRAG";
           const meta = `${tipo} | ${nr}x${nc} | R${r1}C${c1}→R${r2}C${c2}`;
           _logSafe_("BLOCCO FUORI AREA", `#${count} | ${meta} | ${nome}!${a1r} -> "${v}"`, nome, userKey);
         } catch (err) {}
 
-        // 1-2 volte: toast discreto, dal 3°: popup
         if (count <= 2) {
-          _toastDiscretoArea_(
-            "⛔ Modifica bloccata (fuori area)",
-            `Stai tentando di modificare sotto la tabella (righe 21+).\nTentativi oggi (tu): ${count}/2.`,
-            60
-          );
+          try {
+            _toastDiscretoArea_(
+              "⛔ Modifica bloccata (fuori area)",
+              `Stai tentando di modificare sotto la tabella (righe 21+).\nTentativi oggi (tu): ${count}/2.`,
+              60
+            );
+          } catch (eToast) {}
         } else {
-          SpreadsheetApp.getUi().alert(
+          ui.alert(
             "⛔ Modifica bloccata (fuori area)",
             "Stai tentando di modificare celle sotto l’area operativa (righe 3–20).\n\n" +
             `Tentativi oggi (tu): ${count}\n\n` +
             "Queste modifiche vengono BLOCCATE e ripulite automaticamente per evitare errori.\n" +
             "Consiglio: usa solo le righe 3–20 per fornitori e spunte.",
-            SpreadsheetApp.getUi().ButtonSet.OK
+            ui.ButtonSet.OK
           );
         }
 
@@ -759,11 +751,9 @@ function onEdit(e) {
         const cleanNumRows = (r2 - cleanStartRow + 1);
 
         if (cleanNumRows > 0) {
-          // Pulisci solo le colonne gestite (non tocchiamo altro)
           for (const col of COLONNE_INTERESSATE) {
             if (col < c1 || col > c2) continue;
-
-            const rng = rr.getSheet().getRange(cleanStartRow, col, cleanNumRows, 1);
+            const rng = rrEdit.getSheet().getRange(cleanStartRow, col, cleanNumRows, 1);
             try { rng.clearContent(); } catch (e) {}
             try { rng.clearDataValidations(); } catch (e) {}
           }
@@ -813,7 +803,6 @@ function onEdit(e) {
       const dataGiorno = (off !== null) ? dataDaOffset_(off) : null;
       const ePassato = (nome === "Settimana Attiva" && dataGiorno instanceof Date && dataGiorno < oggi);
 
-      // ✅ vero SOLO se stai modificando IL GIORNO DI OGGI (Settimana Attiva)
       const eOggi = (
         nome === "Settimana Attiva" &&
         dataGiorno instanceof Date &&
@@ -823,30 +812,27 @@ function onEdit(e) {
       const giornoLabel = (c in nameColToOffset) ? _giornoDaOffset_(nameColToOffset[c]) : "Giorno";
       const dataStr = (dataGiorno instanceof Date) ? Utilities.formatDate(dataGiorno, tz, "dd/MM/yyyy") : "";
 
-      // PRIORITÀ ASSOLUTA: giorno passato
       if (ePassato) {
-        const resp = SpreadsheetApp.getUi().alert(
+        const resp = ui.alert(
           "Conferma modifica (giorno passato)",
           `Stai modificando ${giornoLabel} ${dataStr} (giorno PASSATO).\n\nVuoi davvero procedere?`,
-          SpreadsheetApp.getUi().ButtonSet.YES_NO
+          ui.ButtonSet.YES_NO
         );
-
-        if (resp !== SpreadsheetApp.getUi().Button.YES) {
+        if (resp !== ui.Button.YES) {
           e.range.setValue(oldNome);
           return;
         }
       } else {
-        // PRIORITÀ 2 (oggi): rename con già spuntato
         const staModificandoNome = (oldTech !== "" && newTech !== "" && oldTech !== newTech);
 
         if (eOggi && cbVal === true && staModificandoNome) {
-          const resp = SpreadsheetApp.getUi().alert(
+          const resp = ui.alert(
             "⚠️ Fornitore già PARTITO",
             `Era già segnato "Partito".\n\nPrima: ${oldTxt}\nDopo: ${newTxt}\n\nConfermi la modifica mantenendo la spunta?`,
-            SpreadsheetApp.getUi().ButtonSet.YES_NO
+            ui.ButtonSet.YES_NO
           );
 
-          if (resp !== SpreadsheetApp.getUi().Button.YES) {
+          if (resp !== ui.Button.YES) {
             e.range.setValue(oldNome);
             cbCell.insertCheckboxes();
             cbCell.setValue(true);
@@ -858,7 +844,6 @@ function onEdit(e) {
           keepPartitoAfterRename = true;
         }
 
-        // PRIORITÀ 3: slot abituale (Template)
         const isSlotAbituale = _isSlotAbitualeDaTemplate_(r, c);
         const newIsNoPartenza = _isNoPartenza_(newNome);
         const oldIsNoPartenza = _isNoPartenza_(oldNome);
@@ -870,21 +855,21 @@ function onEdit(e) {
         const staCambiandoQualcosa = (oldTech !== newTech);
 
         if (isSlotAbituale && staCambiandoQualcosa && !newIsNoPartenza && !isSoloToggleNoPartenza) {
-          const resp = SpreadsheetApp.getUi().alert(
+          const resp = ui.alert(
             "Attenzione (fornitore abituale)",
             "Stai modificando un fornitore abituale (presente nel Template).\n\n" +
             `Consiglio: se oggi NON deve partire, usa "- ${oldBase}".\n\n` +
             "Vuoi davvero modificarlo?",
-            SpreadsheetApp.getUi().ButtonSet.YES_NO
+            ui.ButtonSet.YES_NO
           );
 
-          if (resp !== SpreadsheetApp.getUi().Button.YES) {
+          if (resp !== ui.Button.YES) {
             e.range.setValue(oldNome);
             return;
           }
         }
       }
-      
+
       // LOG
       try {
         const giornoLabelLog = (c in nameColToOffset) ? _giornoDaOffset_(nameColToOffset[c]) : "";
@@ -900,21 +885,20 @@ function onEdit(e) {
 
       const staCancellandoNome = (newTxt === "" && oldTxt !== "");
 
-      // Cancellazione nome con checkbox TRUE
       if (staCancellandoNome && cbVal === true) {
-        const resp = SpreadsheetApp.getUi().alert(
+        const resp = ui.alert(
           "Attenzione",
           "Questo fornitore risulta già segnato come \"Partito\".\n\n" +
           "Se lo cancelli, agli altri sembrerà NON partito.\n\n" +
           "Vuoi davvero cancellarlo?",
-          SpreadsheetApp.getUi().ButtonSet.YES_NO
+          ui.ButtonSet.YES_NO
         );
 
-        if (resp !== SpreadsheetApp.getUi().Button.YES) {
+        if (resp !== ui.Button.YES) {
           e.range.setValue(oldNome);
           cbCell.insertCheckboxes();
           cbCell.setValue(true);
-          _cbSet_(nome, r, cbCell.getColumn(), true);
+          _cbSet_(nome, r, map[c], true);
           _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn());
           return;
         }
@@ -925,7 +909,6 @@ function onEdit(e) {
         return;
       }
 
-      // stile "- ..."
       const isNoPartenza = _isNoPartenza_(newNome);
       const nameCellNome = e.range;
 
@@ -942,7 +925,6 @@ function onEdit(e) {
         nameCellNome.setFontColor(null);
       }
 
-      // checkbox dinamica
       if (newTxt !== "") {
         const wasPartito = (cbVal === true);
         const changedName = (oldTech !== "" && newTech !== "" && oldTech !== newTech);
@@ -978,12 +960,37 @@ function onEdit(e) {
     if (!checkboxCols.includes(c)) return;
 
     const nameCellCb = sh.getRange(r, c - 1);
+    
+    // ==================================================
+    // 🚫 BLOCCO ASSOLUTO GIORNI FUTURI (ANTI-AGGIRAMENTO)
+    // ==================================================
+    const offFuture = (c in checkColToOffset) ? checkColToOffset[c] : null;
+    const dataFuture = (offFuture !== null) ? dataDaOffset_(offFuture) : null;
+
+    if (
+    nome === "Settimana Attiva" &&
+    dataFuture instanceof Date &&
+    dataFuture > oggi
+    ) {
+    // ricostruzione pulita checkbox
+    e.range.clearContent();
+    e.range.insertCheckboxes();
+
+    // ripristina colore corretto (banding)
+    _setBgCheckboxCorretto_(nome, sh, r, c);
+
+    SpreadsheetApp.getUi().alert(
+    "Non puoi modificare checkbox di giorni futuri"
+    );
+
+    return; // 🛑 STOP TOTALE
+   }
 
     if (_isNoPartenza_(nameCellCb.getValue())) {
-      SpreadsheetApp.getUi().alert(
+      ui.alert(
         "Non consentito",
         "Questo fornitore è marcato come NON IN PARTENZA (- ...).\nIl checkbox non può essere spuntato.",
-        SpreadsheetApp.getUi().ButtonSet.OK
+        ui.ButtonSet.OK
       );
 
       e.range.clearContent();
@@ -1012,21 +1019,45 @@ function onEdit(e) {
     const lastMem = _cbGet_(nome, r, c);
     const prevWasTrue = wasTrue || (lastMem === "TRUE");
 
+    // ✅ PRIORITÀ ASSOLUTA: GIORNO FUTURO (qualsiasi azione => reset pulito e STOP)
+    if (nome === "Settimana Attiva" && dataGiornoC instanceof Date && dataGiornoC > oggi) {
+      // Ripristina checkbox “pulita” e non spuntata
+      e.range.clearContent();
+      e.range.clearDataValidations();
+      e.range.insertCheckboxes();
+      e.range.setValue(false);
+
+      // Ripristina sfondo coerente con banding/colore riga
+      try { _setBgCheckboxCorretto_(nome, sh, r, c); } catch (e) {}
+
+      // Messaggio coerente (NO popup conferma rimozione)
+      try { SpreadsheetApp.getUi().alert("Non puoi modificare un giorno futuro"); } catch (e) {}
+
+      // Log (facoltativo)
+      try {
+        const giornoLabelF = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
+        const fornF = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
+        _logSafe_("TENTATIVO MODIFICA CHECKBOX (GIORNO FUTURO)", fornF, nome, giornoLabelF);
+      } catch (e2) {}
+
+      return;
+    }
+    
     let pastConfirmedC = false;
     if (ePassatoC) {
       const dataStr = Utilities.formatDate(dataGiornoC, tz, "dd/MM/yyyy");
       const giornoLabelP = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "Giorno";
       const fornP = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
 
-      const resp = SpreadsheetApp.getUi().alert(
+      const resp = ui.alert(
         "Conferma modifica (giorno passato)",
         `Stai modificando la spunta "Partito" su ${giornoLabelP} ${dataStr} (giorno PASSATO).\n` +
         (fornP ? `Fornitore: ${fornP}\n\n` : "\n") +
         "Vuoi davvero procedere?",
-        SpreadsheetApp.getUi().ButtonSet.YES_NO
+        ui.ButtonSet.YES_NO
       );
 
-      if (resp !== SpreadsheetApp.getUi().Button.YES) {
+      if (resp !== ui.Button.YES) {
         e.range.insertCheckboxes();
         e.range.setValue(prevWasTrue);
         _cbSet_(nome, r, c, prevWasTrue);
@@ -1042,8 +1073,8 @@ function onEdit(e) {
         ? "Stai rimuovendo la spunta \"Partito\" su un giorno PASSATO.\nQuesto può falsare lo storico.\n\nVuoi davvero procedere?"
         : "Stai rimuovendo la spunta \"Partito\" (era già segnata).\n\nVuoi davvero procedere?";
 
-      const resp = SpreadsheetApp.getUi().alert("Conferma", msg, SpreadsheetApp.getUi().ButtonSet.YES_NO);
-      if (resp !== SpreadsheetApp.getUi().Button.YES) {
+      const resp = ui.alert("Conferma", msg, ui.ButtonSet.YES_NO);
+      if (resp !== ui.Button.YES) {
         e.range.insertCheckboxes();
         e.range.setValue(true);
         _cbSet_(nome, r, c, true);
@@ -1071,12 +1102,12 @@ function onEdit(e) {
       const eraTrue = (last === "TRUE");
 
       if (eraTrue) {
-        const resp = SpreadsheetApp.getUi().alert(
+        const resp = ui.alert(
           "Conferma",
           "Stai cancellando una checkbox che risulta già segnata come \"Partito\".\n\nVuoi davvero procedere?",
-          SpreadsheetApp.getUi().ButtonSet.YES_NO
+          ui.ButtonSet.YES_NO
         );
-        if (resp !== SpreadsheetApp.getUi().Button.YES) {
+        if (resp !== ui.Button.YES) {
           e.range.insertCheckboxes();
           e.range.setValue(true);
           _cbSet_(nome, r, c, true);
@@ -1102,29 +1133,50 @@ function onEdit(e) {
       return;
     }
 
-    if (!(dataBase instanceof Date)) return;
-
-    const base = new Date(dataBase);
-    base.setHours(0, 0, 0, 0);
-
-    const idx = checkboxCols.indexOf(c); // 0..5
-    const dataCol = new Date(base);
-    dataCol.setDate(dataCol.getDate() + idx);
-
+    // =========================
+    // 🚫 BLOCCO ASSOLUTO GIORNI FUTURI (PRIORITÀ MASSIMA)
+    // =========================
     if (dataCol > oggi) {
-      e.range.clearContent();
-      e.range.insertCheckboxes();
-      _setBgCheckboxCorretto_(nome, sh, r, c);
-      SpreadsheetApp.getUi().alert("Non puoi spuntare un giorno futuro");
 
-      try {
-        const giornoLabelF = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
-        const fornF = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
-        _logSafe_("TENTATIVO SPUNTA BLOCCATA (GIORNO FUTURO)", fornF, nome, giornoLabelF);
-      } catch (e2) {}
+    // niente popup di conferma
+    // niente memoria storica
+    // reset pulito SEMPRE
 
-      return;
-    }
+    try {
+    e.range.clearContent();
+    e.range.clearDataValidations();
+    e.range.insertCheckboxes();
+    e.range.setValue(false);
+
+    // ripristina subito colore corretto banding
+    _setBgCheckboxCorretto_(nome, sh, r, c);
+    } catch (err) {}
+
+    SpreadsheetApp.getUi().alert(
+    "Non puoi modificare un giorno futuro"
+    );
+
+    try {
+    const giornoLabelF =
+      (c in checkColToOffset)
+        ? _giornoDaOffset_(checkColToOffset[c])
+        : "";
+
+    const fornF = String(nameCellCb.getValue() ?? "")
+      .replace(/\u00A0/g, " ")
+      .trim();
+
+      _logSafe_(
+      "TENTATIVO MODIFICA FUTURO",
+      fornF,
+      nome,
+      giornoLabelF
+     );
+    } catch (e2) {}
+
+   return; // 🛑 STOP TOTALE
+   }
+
   } finally {
     // ✅ STATO SEMPRE
     try {
@@ -1139,7 +1191,6 @@ function onEdit(e) {
         const rr2 = e.range;
         const cells2 = rr2.getNumRows() * rr2.getNumColumns();
 
-        // salva solo edit singolo dentro A3:L20
         if (cells2 === 1 && _rangeInterseca_(rr2, "A3:L20")) {
           SNAPSHOT_FORNITORI_SAVE_(nome);
         }
@@ -1149,20 +1200,37 @@ function onEdit(e) {
       // 🔧 FIX STILE NOMI FORNITORI (anti-copia/incolla)
       // =========================
       try {
-      const isSingleCell = e.range.getNumRows() === 1 && e.range.getNumColumns() === 1;
-      const isNomeCol = [1, 3, 5, 7, 9, 11].includes(c); // A,C,E,G,I,K
+        const isSingleCell = e.range.getNumRows() === 1 && e.range.getNumColumns() === 1;
+        const isNomeCol = [1, 3, 5, 7, 9, 11].includes(c); // A,C,E,G,I,K
+
+        if (
+          isSingleCell &&
+          isNomeCol &&
+          r >= 3 && r <= 20 &&
+          ["Settimana Attiva", "Prossima settimana"].includes(nome)
+        ) {
+          const raw = (typeof e.value !== "undefined") ? e.value : e.range.getValue();
+          _fixStileNomeFornitore_(e.range, raw);
+        }
+      } catch (eFix) {}
+    } catch (e3) {}
+    // =========================
+    // 🎨 RIPRISTINO SFONDO CHECKBOX (anti-cella bianca)
+    // =========================
+    try {
+      const isSingle = e.range.getNumRows() === 1 && e.range.getNumColumns() === 1;
+      const isCkCol = [2,4,6,8,10,12].includes(c);
 
       if (
-      isSingleCell &&
-      isNomeCol &&
-      r >= 3 && r <= 20 &&
-      ["Settimana Attiva", "Prossima settimana"].includes(nome)
+        isSingle &&
+        isCkCol &&
+        r >= 3 && r <= 20 &&
+        ["Settimana Attiva", "Prossima settimana"].includes(nome)
       ) {
-      const raw = (typeof e.value !== "undefined") ? e.value : e.range.getValue();
-      _fixStileNomeFornitore_(e.range, raw);
-     }
-     } catch (e) {}
-    } catch (e3) {}
+        _setBgCheckboxCorretto_(nome, sh, r, c);
+      }
+    } catch (e) {}    
+    
   }
 }
 
@@ -1221,6 +1289,32 @@ function _isRangeFuoriAreaSottoTabella_(range) {
   const sotto = (r > 20);                 // parte da 21 in giù
   const colOK = (c <= 12 && lastCol <= 12); // A..L
   return sotto && colOK;
+}
+
+/****************************************************
+ * NASCONDE TUTTO FUORI AREA OPERATIVA
+ * (righe >20 e colonne >N)   ✅ Mantiene visibili M e N
+ ****************************************************/
+function _NASCONDI_FUORI_AREA_(sheetName) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  if (!sh) return;
+
+  // RIGHE: lascia 1..20, nasconde 21..fine
+  try {
+    const maxRows = sh.getMaxRows();
+    if (maxRows > 20) {
+      sh.hideRows(21, maxRows - 20);
+    }
+  } catch (e) {}
+
+  // COLONNE: lascia A..N (1..14), nasconde O..fine (15..)
+  try {
+    const maxCols = sh.getMaxColumns();
+    const START_HIDE_COL = 15; // O
+    if (maxCols >= START_HIDE_COL) {
+      sh.hideColumns(START_HIDE_COL, maxCols - START_HIDE_COL + 1);
+    }
+  } catch (e) {}
 }
 
 /**
