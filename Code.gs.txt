@@ -1,4 +1,4 @@
-  /**************
+/**************
  * CONFIG
  **************/
 const DEBUG_TOAST = false;
@@ -259,6 +259,7 @@ function _rangeInterseca_(r, a1) {
  *  - Puoi anche chiamarla in fondo ad archiviaSettimana() se vuoi
  ****************************************************/
 function HEALTHCHECK_VISIVO() {
+  return _withSystemLock_(() => {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const attiva = ss.getSheetByName("Settimana Attiva");
   if (!attiva) return;
@@ -405,6 +406,7 @@ function HEALTHCHECK_VISIVO() {
     if (p) HDR_SNAPSHOT_SALVA_(p);
   } catch (e) {}
   try { _bannerArchiviazioneAggiorna_(); } catch (e) {}
+  });
 }
 
 function _hcWriteLastRunToN19_() {
@@ -624,211 +626,277 @@ function _resetSfondoFornitoriAttiva_(sh) {
 function onEdit(e) {
   if (!e || !e.range) return;
 
-  // ✅ N18 AIUTO RAPIDO: gestiscila SEMPRE per prima e STOP
-  if (_handleAiutoRapidoN18_(e)) return;
+  return _withSystemLock_(() => {
 
-  // ✅ BLOCCO HARD header A1:M2 (Settimana Attiva / Prossima settimana)
-  if (UI_ONEDIT_HEADER_A1M2_PROTETTO_(e)) return;
+    // ✅ N18 AIUTO RAPIDO: gestiscila SEMPRE per prima e STOP
+    if (_handleAiutoRapidoN18_(e)) return;
 
-  const sh = e.range.getSheet();
-  const nome = sh.getName();
-  const r = e.range.getRow();
-  const c = e.range.getColumn();
-  const ui = SpreadsheetApp.getUi();
-  const tz = Session.getScriptTimeZone();
-  const a1 = e.range.getA1Notation();
+    // ✅ BLOCCO HARD header A1:M2 (Settimana Attiva / Prossima settimana)
+    if (UI_ONEDIT_HEADER_A1M2_PROTETTO_(e)) return;
 
-  // ✅ Ripristino celle N protette (N1,N2,N3,N4,N17,N18,N19,N20)
-  if (UI_ONEDIT_CELLE_N_PROTETTE_(e)) return;
+    const sh = e.range.getSheet();
+    const nome = sh.getName();
+    const r = e.range.getRow();
+    const c = e.range.getColumn();
+    const ui = SpreadsheetApp.getUi();
+    const tz = Session.getScriptTimeZone();
+    const a1 = e.range.getA1Notation();
 
-  // =========================
-  // BLOCCO HARD multi-cella sulla tabella fornitori (A3:L20)
-  // =========================
-  const rr0 = e.range;
-  const numCells0 = rr0.getNumRows() * rr0.getNumColumns();
+    _GUARDIAN_STATO_UI_(e);
 
-  if (["Settimana Attiva", "Prossima settimana"].includes(nome) && numCells0 >= 2) {
-    if (_rangeInterseca_(rr0, "A3:L20")) {
-      try {
-        const userKey = (typeof _getUserKeyForCounters_ === "function") ? _getUserKeyForCounters_() : "";
-        _logSafe_("BLOCCO MULTI-CELLA (FORNITORI)", `${nome}!${rr0.getA1Notation()} | cells=${numCells0}`, nome, userKey);
-      } catch (e2) {}
+    // ✅ Ripristino celle N protette (N1,N2,N3,N4,N17,N18,N19,N20)
+    if (UI_ONEDIT_CELLE_N_PROTETTE_(e)) return;
 
-      ui.alert(
-        "⛔ Operazione bloccata",
-        "Hai modificato/cancellato più celle insieme nella tabella fornitori.\n\n" +
-          "Per evitare danni, il sistema ripristina automaticamente l’ultimo stato valido.\n\n" +
-          "Consiglio: lavora sempre su 1 cella alla volta.",
-        ui.ButtonSet.OK
-      );
+    // =========================
+    // BLOCCO HARD multi-cella sulla tabella fornitori (A3:L20)
+    // =========================
+    const rr0 = e.range;
+    const numCells0 = rr0.getNumRows() * rr0.getNumColumns();
 
-      SNAPSHOT_FORNITORI_RESTORE_(nome);
-      return; // STOP totale
-    }
-  }
+    if (["Settimana Attiva", "Prossima settimana"].includes(nome) && numCells0 >= 2) {
+      if (_rangeInterseca_(rr0, "A3:L20")) {
+        try {
+          const userKey = (typeof _getUserKeyForCounters_ === "function") ? _getUserKeyForCounters_() : "";
+          _logSafe_("BLOCCO MULTI-CELLA (FORNITORI)", `${nome}!${rr0.getA1Notation()} | cells=${numCells0}`, nome, userKey);
+        } catch (e2) {}
 
-  try {
-    // 🔒 TEMPLATE: le checkbox NON devono mai essere spuntabili
-    if (nome === "TemplateSettimana") {
-      const isCheckboxCol = [2, 4, 6, 8, 10, 12].includes(c);
-      const inRigheFornitori = (r >= 3 && r <= 20);
+        ui.alert(
+          "⛔ Operazione bloccata",
+          "Hai modificato/cancellato più celle insieme nella tabella fornitori.\n\n" +
+            "Per evitare danni, il sistema ripristina automaticamente l’ultimo stato valido.\n\n" +
+            "Consiglio: lavora sempre su 1 cella alla volta.",
+          ui.ButtonSet.OK
+        );
 
-      if (isCheckboxCol && inRigheFornitori) {
-        e.range.clearContent();
-        e.range.insertCheckboxes();
-        e.range.setValue(false);
-        _setBgCheckboxCorretto_(nome, sh, r, c);
-        return;
+        SNAPSHOT_FORNITORI_RESTORE_(nome);
+        return; // STOP totale
       }
     }
 
-    if (!["Settimana Attiva", "Prossima settimana"].includes(nome)) return;
-
-    // DEBUG
     try {
-      _toast_(`EDIT: ${e.range.getA1Notation()} | col=${c} | sheet=${nome}`, "DEBUG onEdit", 3);
-    } catch (err) {}
+      // 🔒 TEMPLATE: le checkbox NON devono mai essere spuntabili
+      if (nome === "TemplateSettimana") {
+        const isCheckboxCol = [2, 4, 6, 8, 10, 12].includes(c);
+        const inRigheFornitori = (r >= 3 && r <= 20);
 
-    try { garantisciStruttura(); } catch (e2) {}
-
-    // Se sei sopra la tabella fornitori, esci
-    if (r < 3) return;
-
-    // =========================
-    // PROTEZIONE FUORI AREA (ROBUSTA)
-    // =========================
-    const RIGA_MAX = 20;
-    const COLONNE_NOMI = [1, 3, 5, 7, 9, 11];
-    const COLONNE_CHECKBOX = [2, 4, 6, 8, 10, 12];
-    const COLONNE_INTERESSATE = [...COLONNE_NOMI, ...COLONNE_CHECKBOX];
-
-    // Range edit (anche multiplo: incolla / drag)
-    const rrEdit = e.range;                 // ✅ rinominato (prima era rr)
-    const r1 = rrEdit.getRow();
-    const c1 = rrEdit.getColumn();
-    const nr = rrEdit.getNumRows();
-    const nc = rrEdit.getNumColumns();
-    const r2 = r1 + nr - 1;
-    const c2 = c1 + nc - 1;
-
-    // OK se il range resta ENTRO la tabella (r2 <= RIGA_MAX)
-    if (r2 > RIGA_MAX) {
-      const touchedManagedCols = COLONNE_INTERESSATE.some(col => col >= c1 && col <= c2);
-
-      if (touchedManagedCols) {
-        const userKey = (typeof _getUserKeyForCounters_ === "function") ? _getUserKeyForCounters_() : "";
-        const count = (typeof _incContatoreFuoriArea_ === "function") ? _incContatoreFuoriArea_(userKey) : 999;
-
-        try {
-          const a1r = rrEdit.getA1Notation();
-          const v = (typeof e.value !== "undefined") ? String(e.value) : "";
-          const tipo = (nr === 1 && nc === 1) ? "EDIT" : "PASTE/DRAG";
-          const meta = `${tipo} | ${nr}x${nc} | R${r1}C${c1}→R${r2}C${c2}`;
-          _logSafe_("BLOCCO FUORI AREA", `#${count} | ${meta} | ${nome}!${a1r} -> "${v}"`, nome, userKey);
-        } catch (err) {}
-
-        if (count <= 2) {
-          try {
-            _toastDiscretoArea_(
-              "⛔ Modifica bloccata (fuori area)",
-              `Stai tentando di modificare sotto la tabella (righe 21+).\nTentativi oggi (tu): ${count}/2.`,
-              60
-            );
-          } catch (eToast) {}
-        } else {
-          ui.alert(
-            "⛔ Modifica bloccata (fuori area)",
-            "Stai tentando di modificare celle sotto l’area operativa (righe 3–20).\n\n" +
-            `Tentativi oggi (tu): ${count}\n\n` +
-            "Queste modifiche vengono BLOCCATE e ripulite automaticamente per evitare errori.\n" +
-            "Consiglio: usa solo le righe 3–20 per fornitori e spunte.",
-            ui.ButtonSet.OK
-          );
+        if (isCheckboxCol && inRigheFornitori) {
+          e.range.clearContent();
+          e.range.insertCheckboxes();
+          e.range.setValue(false);
+          _setBgCheckboxCorretto_(nome, sh, r, c);
+          return;
         }
+      }
 
-        // ✅ PULIZIA AUTOMATICA: solo la parte FUORI AREA del range
-        const cleanStartRow = Math.max(RIGA_MAX + 1, r1);
-        const cleanNumRows = (r2 - cleanStartRow + 1);
+      if (!["Settimana Attiva", "Prossima settimana"].includes(nome)) return;
 
-        if (cleanNumRows > 0) {
-          for (const col of COLONNE_INTERESSATE) {
-            if (col < c1 || col > c2) continue;
-            const rng = rrEdit.getSheet().getRange(cleanStartRow, col, cleanNumRows, 1);
-            try { rng.clearContent(); } catch (e) {}
-            try { rng.clearDataValidations(); } catch (e) {}
+      // DEBUG
+      try {
+        _toast_(`EDIT: ${e.range.getA1Notation()} | col=${c} | sheet=${nome}`, "DEBUG onEdit", 3);
+      } catch (err) {}
+
+      try { garantisciStruttura(); } catch (e2) {}
+
+      // Se sei sopra la tabella fornitori, esci
+      if (r < 3) return;
+
+      // =========================
+      // PROTEZIONE FUORI AREA (ROBUSTA)
+      // =========================
+      const RIGA_MAX = 20;
+      const COLONNE_NOMI = [1, 3, 5, 7, 9, 11];
+      const COLONNE_CHECKBOX = [2, 4, 6, 8, 10, 12];
+      const COLONNE_INTERESSATE = [...COLONNE_NOMI, ...COLONNE_CHECKBOX];
+
+      // Range edit (anche multiplo: incolla / drag)
+      const rrEdit = e.range;                 // ✅ rinominato (prima era rr)
+      const r1 = rrEdit.getRow();
+      const c1 = rrEdit.getColumn();
+      const nr = rrEdit.getNumRows();
+      const nc = rrEdit.getNumColumns();
+      const r2 = r1 + nr - 1;
+      const c2 = c1 + nc - 1;
+
+      // OK se il range resta ENTRO la tabella (r2 <= RIGA_MAX)
+      if (r2 > RIGA_MAX) {
+        const touchedManagedCols = COLONNE_INTERESSATE.some(col => col >= c1 && col <= c2);
+
+        if (touchedManagedCols) {
+          const userKey = (typeof _getUserKeyForCounters_ === "function") ? _getUserKeyForCounters_() : "";
+          const count = (typeof _incContatoreFuoriArea_ === "function") ? _incContatoreFuoriArea_(userKey) : 999;
+
+          try {
+            const a1r = rrEdit.getA1Notation();
+            const v = (typeof e.value !== "undefined") ? String(e.value) : "";
+            const tipo = (nr === 1 && nc === 1) ? "EDIT" : "PASTE/DRAG";
+            const meta = `${tipo} | ${nr}x${nc} | R${r1}C${c1}→R${r2}C${c2}`;
+            _logSafe_("BLOCCO FUORI AREA", `#${count} | ${meta} | ${nome}!${a1r} -> "${v}"`, nome, userKey);
+          } catch (err) {}
+
+          if (count <= 2) {
+            try {
+              _toastDiscretoArea_(
+                "⛔ Modifica bloccata (fuori area)",
+                `Stai tentando di modificare sotto la tabella (righe 21+).\nTentativi oggi (tu): ${count}/2.`,
+                60
+              );
+            } catch (eToast) {}
+          } else {
+            ui.alert(
+              "⛔ Modifica bloccata (fuori area)",
+              "Stai tentando di modificare celle sotto l’area operativa (righe 3–20).\n\n" +
+              `Tentativi oggi (tu): ${count}\n\n` +
+              "Queste modifiche vengono BLOCCATE e ripulite automaticamente per evitare errori.\n" +
+              "Consiglio: usa solo le righe 3–20 per fornitori e spunte.",
+              ui.ButtonSet.OK
+            );
+          }
+
+          // ✅ PULIZIA AUTOMATICA: solo la parte FUORI AREA del range
+          const cleanStartRow = Math.max(RIGA_MAX + 1, r1);
+          const cleanNumRows = (r2 - cleanStartRow + 1);
+
+          if (cleanNumRows > 0) {
+            for (const col of COLONNE_INTERESSATE) {
+              if (col < c1 || col > c2) continue;
+              const rng = rrEdit.getSheet().getRange(cleanStartRow, col, cleanNumRows, 1);
+              try { rng.clearContent(); } catch (e) {}
+              try { rng.clearDataValidations(); } catch (e) {}
+            }
+          }
+
+          return; // 🛑 STOP totale
+        }
+      }
+
+      // mappa colonne NOMI -> colonna CHECKBOX
+      const map = { 1: 2, 3: 4, 5: 6, 7: 8, 9: 10, 11: 12 };
+
+      // offset giorno (0=lun ... 5=sab)
+      const nameColToOffset = { 1: 0, 3: 1, 5: 2, 7: 3, 9: 4, 11: 5 };
+      const checkColToOffset = { 2: 0, 4: 1, 6: 2, 8: 3, 10: 4, 12: 5 };
+
+      // data base settimana
+      const dataBase = sh.getRange("M2").getValue();
+      const oggi = new Date();
+      oggi.setHours(0, 0, 0, 0);
+
+      function dataDaOffset_(off) {
+        if (!(dataBase instanceof Date)) return null;
+        const d = new Date(dataBase);
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() + off);
+        return d;
+      }
+
+      // =========================
+      // 1) COLONNE NOMI (A/C/E/G/I/K)
+      // =========================
+      if (map[c]) {
+        let keepPartitoAfterRename = false;
+        const cbCell = sh.getRange(r, map[c]);
+
+        const cbVal = cbCell.getValue(); // true/false/""
+        const oldNome = (typeof e.oldValue !== "undefined") ? e.oldValue : "";
+        const newNome = (typeof e.value !== "undefined") ? e.value : "";
+
+        const oldTxt = _normNome_(oldNome);
+        const newTxt = _normNome_(newNome);
+        const oldTech = _normNomeTecnico_(oldNome);
+        const newTech = _normNomeTecnico_(newNome);
+
+        const off = (c in nameColToOffset) ? nameColToOffset[c] : null;
+        const dataGiorno = (off !== null) ? dataDaOffset_(off) : null;
+        const ePassato = (nome === "Settimana Attiva" && dataGiorno instanceof Date && dataGiorno < oggi);
+
+        const eOggi = (
+          nome === "Settimana Attiva" &&
+          dataGiorno instanceof Date &&
+          dataGiorno.getTime() === oggi.getTime()
+        );
+
+        const giornoLabel = (c in nameColToOffset) ? _giornoDaOffset_(nameColToOffset[c]) : "Giorno";
+        const dataStr = (dataGiorno instanceof Date) ? Utilities.formatDate(dataGiorno, tz, "dd/MM/yyyy") : "";
+
+        if (ePassato) {
+          const resp = ui.alert(
+            "Conferma modifica (giorno passato)",
+            `Stai modificando ${giornoLabel} ${dataStr} (giorno PASSATO).\n\nVuoi davvero procedere?`,
+            ui.ButtonSet.YES_NO
+          );
+          if (resp !== ui.Button.YES) {
+            e.range.setValue(oldNome);
+            return;
+          }
+        } else {
+          const staModificandoNome = (oldTech !== "" && newTech !== "" && oldTech !== newTech);
+
+          if (eOggi && cbVal === true && staModificandoNome) {
+            const resp = ui.alert(
+              "⚠️ Fornitore già PARTITO",
+              `Era già segnato "Partito".\n\nPrima: ${oldTxt}\nDopo: ${newTxt}\n\nConfermi la modifica mantenendo la spunta?`,
+              ui.ButtonSet.YES_NO
+            );
+
+            if (resp !== ui.Button.YES) {
+              e.range.setValue(oldNome);
+              cbCell.insertCheckboxes();
+              cbCell.setValue(true);
+              _cbSet_(nome, r, cbCell.getColumn(), true);
+              _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn());
+              return;
+            }
+
+            keepPartitoAfterRename = true;
+          }
+
+          const isSlotAbituale = _isSlotAbitualeDaTemplate_(r, c);
+          const newIsNoPartenza = _isNoPartenza_(newNome);
+          const oldIsNoPartenza = _isNoPartenza_(oldNome);
+
+          const oldBase = _normNome_(oldTxt).replace(/^(-\s*)+/, "").trim();
+          const newBase = _normNome_(newTxt).replace(/^(-\s*)+/, "").trim();
+
+          const isSoloToggleNoPartenza = oldIsNoPartenza && !newIsNoPartenza && (oldBase === newBase);
+          const staCambiandoQualcosa = (oldTech !== newTech);
+
+          if (isSlotAbituale && staCambiandoQualcosa && !newIsNoPartenza && !isSoloToggleNoPartenza) {
+            const resp = ui.alert(
+              "Attenzione (fornitore abituale)",
+              "Stai modificando un fornitore abituale (presente nel Template).\n\n" +
+              `Consiglio: se oggi NON deve partire, usa "- ${oldBase}".\n\n` +
+              "Vuoi davvero modificarlo?",
+              ui.ButtonSet.YES_NO
+            );
+
+            if (resp !== ui.Button.YES) {
+              e.range.setValue(oldNome);
+              return;
+            }
           }
         }
 
-        return; // 🛑 STOP totale
-      }
-    }
+        // LOG
+        try {
+          const giornoLabelLog = (c in nameColToOffset) ? _giornoDaOffset_(nameColToOffset[c]) : "";
 
-    // mappa colonne NOMI -> colonna CHECKBOX
-    const map = { 1: 2, 3: 4, 5: 6, 7: 8, 9: 10, 11: 12 };
+          if (oldTxt === "" && newTxt !== "") {
+            _logSafe_("INSERISCE FORNITORE", newTxt, nome, giornoLabelLog);
+          } else if (oldTxt !== "" && newTxt === "") {
+            _logSafe_("CANCELLA FORNITORE", oldTxt, nome, giornoLabelLog);
+          } else if (oldTxt !== "" && newTxt !== "" && _isCambioRealeNome_(oldNome, newNome)) {
+            _logSafe_("MODIFICA FORNITORE", `${oldTxt} -> ${newTxt}`, nome, giornoLabelLog);
+          }
+        } catch (e2) {}
 
-    // offset giorno (0=lun ... 5=sab)
-    const nameColToOffset = { 1: 0, 3: 1, 5: 2, 7: 3, 9: 4, 11: 5 };
-    const checkColToOffset = { 2: 0, 4: 1, 6: 2, 8: 3, 10: 4, 12: 5 };
+        const staCancellandoNome = (newTxt === "" && oldTxt !== "");
 
-    // data base settimana
-    const dataBase = sh.getRange("M2").getValue();
-    const oggi = new Date();
-    oggi.setHours(0, 0, 0, 0);
-
-    function dataDaOffset_(off) {
-      if (!(dataBase instanceof Date)) return null;
-      const d = new Date(dataBase);
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() + off);
-      return d;
-    }
-
-    // =========================
-    // 1) COLONNE NOMI (A/C/E/G/I/K)
-    // =========================
-    if (map[c]) {
-      let keepPartitoAfterRename = false;
-      const cbCell = sh.getRange(r, map[c]);
-
-      const cbVal = cbCell.getValue(); // true/false/""
-      const oldNome = (typeof e.oldValue !== "undefined") ? e.oldValue : "";
-      const newNome = (typeof e.value !== "undefined") ? e.value : "";
-
-      const oldTxt = _normNome_(oldNome);
-      const newTxt = _normNome_(newNome);
-      const oldTech = _normNomeTecnico_(oldNome);
-      const newTech = _normNomeTecnico_(newNome);
-
-      const off = (c in nameColToOffset) ? nameColToOffset[c] : null;
-      const dataGiorno = (off !== null) ? dataDaOffset_(off) : null;
-      const ePassato = (nome === "Settimana Attiva" && dataGiorno instanceof Date && dataGiorno < oggi);
-
-      const eOggi = (
-        nome === "Settimana Attiva" &&
-        dataGiorno instanceof Date &&
-        dataGiorno.getTime() === oggi.getTime()
-      );
-
-      const giornoLabel = (c in nameColToOffset) ? _giornoDaOffset_(nameColToOffset[c]) : "Giorno";
-      const dataStr = (dataGiorno instanceof Date) ? Utilities.formatDate(dataGiorno, tz, "dd/MM/yyyy") : "";
-
-      if (ePassato) {
-        const resp = ui.alert(
-          "Conferma modifica (giorno passato)",
-          `Stai modificando ${giornoLabel} ${dataStr} (giorno PASSATO).\n\nVuoi davvero procedere?`,
-          ui.ButtonSet.YES_NO
-        );
-        if (resp !== ui.Button.YES) {
-          e.range.setValue(oldNome);
-          return;
-        }
-      } else {
-        const staModificandoNome = (oldTech !== "" && newTech !== "" && oldTech !== newTech);
-
-        if (eOggi && cbVal === true && staModificandoNome) {
+        if (staCancellandoNome && cbVal === true) {
           const resp = ui.alert(
-            "⚠️ Fornitore già PARTITO",
-            `Era già segnato "Partito".\n\nPrima: ${oldTxt}\nDopo: ${newTxt}\n\nConfermi la modifica mantenendo la spunta?`,
+            "Attenzione",
+            "Questo fornitore risulta già segnato come \"Partito\".\n\n" +
+            "Se lo cancelli, agli altri sembrerà NON partito.\n\n" +
+            "Vuoi davvero cancellarlo?",
             ui.ButtonSet.YES_NO
           );
 
@@ -836,277 +904,175 @@ function onEdit(e) {
             e.range.setValue(oldNome);
             cbCell.insertCheckboxes();
             cbCell.setValue(true);
-            _cbSet_(nome, r, cbCell.getColumn(), true);
+            _cbSet_(nome, r, map[c], true);
             _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn());
             return;
           }
 
-          keepPartitoAfterRename = true;
-        }
-
-        const isSlotAbituale = _isSlotAbitualeDaTemplate_(r, c);
-        const newIsNoPartenza = _isNoPartenza_(newNome);
-        const oldIsNoPartenza = _isNoPartenza_(oldNome);
-
-        const oldBase = _normNome_(oldTxt).replace(/^(-\s*)+/, "").trim();
-        const newBase = _normNome_(newTxt).replace(/^(-\s*)+/, "").trim();
-
-        const isSoloToggleNoPartenza = oldIsNoPartenza && !newIsNoPartenza && (oldBase === newBase);
-        const staCambiandoQualcosa = (oldTech !== newTech);
-
-        if (isSlotAbituale && staCambiandoQualcosa && !newIsNoPartenza && !isSoloToggleNoPartenza) {
-          const resp = ui.alert(
-            "Attenzione (fornitore abituale)",
-            "Stai modificando un fornitore abituale (presente nel Template).\n\n" +
-            `Consiglio: se oggi NON deve partire, usa "- ${oldBase}".\n\n` +
-            "Vuoi davvero modificarlo?",
-            ui.ButtonSet.YES_NO
-          );
-
-          if (resp !== ui.Button.YES) {
-            e.range.setValue(oldNome);
-            return;
-          }
-        }
-      }
-
-      // LOG
-      try {
-        const giornoLabelLog = (c in nameColToOffset) ? _giornoDaOffset_(nameColToOffset[c]) : "";
-
-        if (oldTxt === "" && newTxt !== "") {
-          _logSafe_("INSERISCE FORNITORE", newTxt, nome, giornoLabelLog);
-        } else if (oldTxt !== "" && newTxt === "") {
-          _logSafe_("CANCELLA FORNITORE", oldTxt, nome, giornoLabelLog);
-        } else if (oldTxt !== "" && newTxt !== "" && _isCambioRealeNome_(oldNome, newNome)) {
-          _logSafe_("MODIFICA FORNITORE", `${oldTxt} -> ${newTxt}`, nome, giornoLabelLog);
-        }
-      } catch (e2) {}
-
-      const staCancellandoNome = (newTxt === "" && oldTxt !== "");
-
-      if (staCancellandoNome && cbVal === true) {
-        const resp = ui.alert(
-          "Attenzione",
-          "Questo fornitore risulta già segnato come \"Partito\".\n\n" +
-          "Se lo cancelli, agli altri sembrerà NON partito.\n\n" +
-          "Vuoi davvero cancellarlo?",
-          ui.ButtonSet.YES_NO
-        );
-
-        if (resp !== ui.Button.YES) {
-          e.range.setValue(oldNome);
-          cbCell.insertCheckboxes();
-          cbCell.setValue(true);
-          _cbSet_(nome, r, map[c], true);
+          cbCell.clearContent();
+          cbCell.clearDataValidations();
           _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn());
           return;
         }
 
-        cbCell.clearContent();
-        cbCell.clearDataValidations();
-        _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn());
-        return;
-      }
+        const isNoPartenza = _isNoPartenza_(newNome);
+        const nameCellNome = e.range;
 
-      const isNoPartenza = _isNoPartenza_(newNome);
-      const nameCellNome = e.range;
-
-      if (newTxt !== "") {
-        if (isNoPartenza) {
-          nameCellNome.setFontLine("line-through");
-          nameCellNome.setFontColor("#666666");
+        if (newTxt !== "") {
+          if (isNoPartenza) {
+            nameCellNome.setFontLine("line-through");
+            nameCellNome.setFontColor("#666666");
+          } else {
+            nameCellNome.setFontLine("none");
+            nameCellNome.setFontColor(null);
+          }
         } else {
           nameCellNome.setFontLine("none");
           nameCellNome.setFontColor(null);
         }
-      } else {
-        nameCellNome.setFontLine("none");
-        nameCellNome.setFontColor(null);
-      }
 
-      if (newTxt !== "") {
-        const wasPartito = (cbVal === true);
-        const changedName = (oldTech !== "" && newTech !== "" && oldTech !== newTech);
+        if (newTxt !== "") {
+          const wasPartito = (cbVal === true);
+          const changedName = (oldTech !== "" && newTech !== "" && oldTech !== newTech);
 
-        cbCell.clearContent();
-        cbCell.insertCheckboxes();
+          cbCell.clearContent();
+          cbCell.insertCheckboxes();
 
-        if (isNoPartenza) {
-          cbCell.setValue(false);
-          cbCell.setBackground(nameCellNome.getBackground());
-          _cbSet_(nome, r, map[c], false);
-        } else {
-          if (wasPartito && (!changedName || keepPartitoAfterRename)) {
-            cbCell.setValue(true);
-            _cbSet_(nome, r, map[c], true);
+          if (isNoPartenza) {
+            cbCell.setValue(false);
+            cbCell.setBackground(nameCellNome.getBackground());
+            _cbSet_(nome, r, map[c], false);
+          } else {
+            if (wasPartito && (!changedName || keepPartitoAfterRename)) {
+              cbCell.setValue(true);
+              _cbSet_(nome, r, map[c], true);
+            }
+            _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn());
           }
+        } else {
+          cbCell.clearContent();
+          cbCell.clearDataValidations();
           _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn());
         }
-      } else {
-        cbCell.clearContent();
-        cbCell.clearDataValidations();
-        _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn());
-      }
 
-      return;
-    }
-
-    // =========================
-    // 2) COLONNE CHECKBOX (B/D/F/H/J/L)
-    // =========================
-    const map2 = { 1: 2, 3: 4, 5: 6, 7: 8, 9: 10, 11: 12 };
-    const checkboxCols = Object.values(map2);
-    if (!checkboxCols.includes(c)) return;
-
-    const nameCellCb = sh.getRange(r, c - 1);
-    
-    // ==================================================
-    // 🚫 BLOCCO ASSOLUTO GIORNI FUTURI (ANTI-AGGIRAMENTO)
-    // ==================================================
-    const offFuture = (c in checkColToOffset) ? checkColToOffset[c] : null;
-    const dataFuture = (offFuture !== null) ? dataDaOffset_(offFuture) : null;
-
-    if (
-    nome === "Settimana Attiva" &&
-    dataFuture instanceof Date &&
-    dataFuture > oggi
-    ) {
-    // ricostruzione pulita checkbox
-    e.range.clearContent();
-    e.range.insertCheckboxes();
-
-    // ripristina colore corretto (banding)
-    _setBgCheckboxCorretto_(nome, sh, r, c);
-
-    SpreadsheetApp.getUi().alert(
-    "Non puoi modificare checkbox di giorni futuri"
-    );
-
-    return; // 🛑 STOP TOTALE
-   }
-
-    if (_isNoPartenza_(nameCellCb.getValue())) {
-      ui.alert(
-        "Non consentito",
-        "Questo fornitore è marcato come NON IN PARTENZA (- ...).\nIl checkbox non può essere spuntato.",
-        ui.ButtonSet.OK
-      );
-
-      e.range.clearContent();
-      e.range.insertCheckboxes();
-      e.range.setValue(false);
-      _cbSet_(nome, r, c, false);
-      e.range.setBackground(nameCellCb.getBackground());
-
-      try {
-        const giornoLabelX = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
-        const fornX = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
-        _logSafe_("TENTATIVO SPUNTA BLOCCATA (- FORNITORE)", fornX, nome, giornoLabelX);
-      } catch (e2) {}
-
-      return;
-    }
-
-    const offC = (c in checkColToOffset) ? checkColToOffset[c] : null;
-    const dataGiornoC = (offC !== null) ? dataDaOffset_(offC) : null;
-    const ePassatoC = (nome === "Settimana Attiva" && dataGiornoC instanceof Date && dataGiornoC < oggi);
-
-    const wasTrue = (e.oldValue === true || e.oldValue === "TRUE");
-    const newIsEmpty = (e.value === undefined || e.value === null || e.value === "");
-    const newIsFalse = (e.value === false || e.value === "FALSE");
-
-    const lastMem = _cbGet_(nome, r, c);
-    const prevWasTrue = wasTrue || (lastMem === "TRUE");
-
-    // ✅ PRIORITÀ ASSOLUTA: GIORNO FUTURO (qualsiasi azione => reset pulito e STOP)
-    if (nome === "Settimana Attiva" && dataGiornoC instanceof Date && dataGiornoC > oggi) {
-      // Ripristina checkbox “pulita” e non spuntata
-      e.range.clearContent();
-      e.range.clearDataValidations();
-      e.range.insertCheckboxes();
-      e.range.setValue(false);
-
-      // Ripristina sfondo coerente con banding/colore riga
-      try { _setBgCheckboxCorretto_(nome, sh, r, c); } catch (e) {}
-
-      // Messaggio coerente (NO popup conferma rimozione)
-      try { SpreadsheetApp.getUi().alert("Non puoi modificare un giorno futuro"); } catch (e) {}
-
-      // Log (facoltativo)
-      try {
-        const giornoLabelF = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
-        const fornF = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
-        _logSafe_("TENTATIVO MODIFICA CHECKBOX (GIORNO FUTURO)", fornF, nome, giornoLabelF);
-      } catch (e2) {}
-
-      return;
-    }
-    
-    let pastConfirmedC = false;
-    if (ePassatoC) {
-      const dataStr = Utilities.formatDate(dataGiornoC, tz, "dd/MM/yyyy");
-      const giornoLabelP = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "Giorno";
-      const fornP = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
-
-      const resp = ui.alert(
-        "Conferma modifica (giorno passato)",
-        `Stai modificando la spunta "Partito" su ${giornoLabelP} ${dataStr} (giorno PASSATO).\n` +
-        (fornP ? `Fornitore: ${fornP}\n\n` : "\n") +
-        "Vuoi davvero procedere?",
-        ui.ButtonSet.YES_NO
-      );
-
-      if (resp !== ui.Button.YES) {
-        e.range.insertCheckboxes();
-        e.range.setValue(prevWasTrue);
-        _cbSet_(nome, r, c, prevWasTrue);
-        _setBgCheckboxCorretto_(nome, sh, r, c);
         return;
       }
 
-      pastConfirmedC = true;
-    }
+      // =========================
+      // 2) COLONNE CHECKBOX (B/D/F/H/J/L)
+      // =========================
+      const map2 = { 1: 2, 3: 4, 5: 6, 7: 8, 9: 10, 11: 12 };
+      const checkboxCols = Object.values(map2);
+      if (!checkboxCols.includes(c)) return;
 
-    if (!pastConfirmedC && prevWasTrue && (newIsEmpty || newIsFalse)) {
-      const msg = ePassatoC
-        ? "Stai rimuovendo la spunta \"Partito\" su un giorno PASSATO.\nQuesto può falsare lo storico.\n\nVuoi davvero procedere?"
-        : "Stai rimuovendo la spunta \"Partito\" (era già segnata).\n\nVuoi davvero procedere?";
+      const nameCellCb = sh.getRange(r, c - 1);
 
-      const resp = ui.alert("Conferma", msg, ui.ButtonSet.YES_NO);
-      if (resp !== ui.Button.YES) {
+      // ==================================================
+      // 🚫 BLOCCO ASSOLUTO GIORNI FUTURI (ANTI-AGGIRAMENTO)
+      // ==================================================
+      const offFuture = (c in checkColToOffset) ? checkColToOffset[c] : null;
+      const dataFuture = (offFuture !== null) ? dataDaOffset_(offFuture) : null;
+
+      if (
+        nome === "Settimana Attiva" &&
+        dataFuture instanceof Date &&
+        dataFuture > oggi
+      ) {
+        e.range.clearContent();
         e.range.insertCheckboxes();
-        e.range.setValue(true);
-        _cbSet_(nome, r, c, true);
         _setBgCheckboxCorretto_(nome, sh, r, c);
+
+        SpreadsheetApp.getUi().alert(
+          "Non puoi modificare checkbox di giorni futuri"
+        );
+
+        return; // 🛑 STOP TOTALE
+      }
+
+      if (_isNoPartenza_(nameCellCb.getValue())) {
+        ui.alert(
+          "Non consentito",
+          "Questo fornitore è marcato come NON IN PARTENZA (- ...).\nIl checkbox non può essere spuntato.",
+          ui.ButtonSet.OK
+        );
+
+        e.range.clearContent();
+        e.range.insertCheckboxes();
+        e.range.setValue(false);
+        _cbSet_(nome, r, c, false);
+        e.range.setBackground(nameCellCb.getBackground());
+
+        try {
+          const giornoLabelX = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
+          const fornX = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
+          _logSafe_("TENTATIVO SPUNTA BLOCCATA (- FORNITORE)", fornX, nome, giornoLabelX);
+        } catch (e2) {}
+
         return;
       }
 
-      try {
-        const giornoLabel2 = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
-        const forn2 = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
-        _logSafe_("CONFERMA RIMOZIONE SPUNTA TRUE", forn2, nome, giornoLabel2);
-      } catch (e2) {}
-    }
+      const offC = (c in checkColToOffset) ? checkColToOffset[c] : null;
+      const dataGiornoC = (offC !== null) ? dataDaOffset_(offC) : null;
+      const ePassatoC = (nome === "Settimana Attiva" && dataGiornoC instanceof Date && dataGiornoC < oggi);
 
-    const giornoLabel = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
-    const fornitore = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
+      const wasTrue = (e.oldValue === true || e.oldValue === "TRUE");
+      const newIsEmpty = (e.value === undefined || e.value === null || e.value === "");
+      const newIsFalse = (e.value === false || e.value === "FALSE");
 
-    if (e.value === true || e.value === "TRUE") {
-      _cbSet_(nome, r, c, true);
-      _logSafe_("SPUNTA PARTITO", fornitore, nome, giornoLabel);
-    }
+      const lastMem = _cbGet_(nome, r, c);
+      const prevWasTrue = wasTrue || (lastMem === "TRUE");
 
-    if (newIsEmpty) {
-      const last = _cbGet_(nome, r, c);
-      const eraTrue = (last === "TRUE");
+      // ✅ PRIORITÀ ASSOLUTA: GIORNO FUTURO (qualsiasi azione => reset pulito e STOP)
+      if (nome === "Settimana Attiva" && dataGiornoC instanceof Date && dataGiornoC > oggi) {
+        e.range.clearContent();
+        e.range.clearDataValidations();
+        e.range.insertCheckboxes();
+        e.range.setValue(false);
 
-      if (eraTrue) {
+        try { _setBgCheckboxCorretto_(nome, sh, r, c); } catch (e) {}
+
+        try { SpreadsheetApp.getUi().alert("Non puoi modificare un giorno futuro"); } catch (e) {}
+
+        try {
+          const giornoLabelF = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
+          const fornF = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
+          _logSafe_("TENTATIVO MODIFICA CHECKBOX (GIORNO FUTURO)", fornF, nome, giornoLabelF);
+        } catch (e2) {}
+
+        return;
+      }
+
+      let pastConfirmedC = false;
+      if (ePassatoC) {
+        const dataStr = Utilities.formatDate(dataGiornoC, tz, "dd/MM/yyyy");
+        const giornoLabelP = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "Giorno";
+        const fornP = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
+
         const resp = ui.alert(
-          "Conferma",
-          "Stai cancellando una checkbox che risulta già segnata come \"Partito\".\n\nVuoi davvero procedere?",
+          "Conferma modifica (giorno passato)",
+          `Stai modificando la spunta "Partito" su ${giornoLabelP} ${dataStr} (giorno PASSATO).\n` +
+          (fornP ? `Fornitore: ${fornP}\n\n` : "\n") +
+          "Vuoi davvero procedere?",
           ui.ButtonSet.YES_NO
         );
+
+        if (resp !== ui.Button.YES) {
+          e.range.insertCheckboxes();
+          e.range.setValue(prevWasTrue);
+          _cbSet_(nome, r, c, prevWasTrue);
+          _setBgCheckboxCorretto_(nome, sh, r, c);
+          return;
+        }
+
+        pastConfirmedC = true;
+      }
+
+      if (!pastConfirmedC && prevWasTrue && (newIsEmpty || newIsFalse)) {
+        const msg = ePassatoC
+          ? "Stai rimuovendo la spunta \"Partito\" su un giorno PASSATO.\nQuesto può falsare lo storico.\n\nVuoi davvero procedere?"
+          : "Stai rimuovendo la spunta \"Partito\" (era già segnata).\n\nVuoi davvero procedere?";
+
+        const resp = ui.alert("Conferma", msg, ui.ButtonSet.YES_NO);
         if (resp !== ui.Button.YES) {
           e.range.insertCheckboxes();
           e.range.setValue(true);
@@ -1114,124 +1080,117 @@ function onEdit(e) {
           _setBgCheckboxCorretto_(nome, sh, r, c);
           return;
         }
-        _cbSet_(nome, r, c, false);
+
+        try {
+          const giornoLabel2 = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
+          const forn2 = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
+          _logSafe_("CONFERMA RIMOZIONE SPUNTA TRUE", forn2, nome, giornoLabel2);
+        } catch (e2) {}
       }
 
-      e.range.clearContent();
-      e.range.insertCheckboxes();
-      _setBgCheckboxCorretto_(nome, sh, r, c);
-      return;
-    }
+      const giornoLabel = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
+      const fornitore = String(nameCellCb.getValue() ?? "").replace(/\u00A0/g, " ").trim();
 
-    if (newIsFalse) {
-      _cbSet_(nome, r, c, false);
-      _logSafe_("TOGLIE SPUNTA", fornitore, nome, giornoLabel);
-
-      e.range.clearContent();
-      e.range.insertCheckboxes();
-      _setBgCheckboxCorretto_(nome, sh, r, c);
-      return;
-    }
-
-    // =========================
-    // 🚫 BLOCCO ASSOLUTO GIORNI FUTURI (PRIORITÀ MASSIMA)
-    // =========================
-    if (dataCol > oggi) {
-
-    // niente popup di conferma
-    // niente memoria storica
-    // reset pulito SEMPRE
-
-    try {
-    e.range.clearContent();
-    e.range.clearDataValidations();
-    e.range.insertCheckboxes();
-    e.range.setValue(false);
-
-    // ripristina subito colore corretto banding
-    _setBgCheckboxCorretto_(nome, sh, r, c);
-    } catch (err) {}
-
-    SpreadsheetApp.getUi().alert(
-    "Non puoi modificare un giorno futuro"
-    );
-
-    try {
-    const giornoLabelF =
-      (c in checkColToOffset)
-        ? _giornoDaOffset_(checkColToOffset[c])
-        : "";
-
-    const fornF = String(nameCellCb.getValue() ?? "")
-      .replace(/\u00A0/g, " ")
-      .trim();
-
-      _logSafe_(
-      "TENTATIVO MODIFICA FUTURO",
-      fornF,
-      nome,
-      giornoLabelF
-     );
-    } catch (e2) {}
-
-   return; // 🛑 STOP TOTALE
-   }
-
-  } finally {
-    // ✅ STATO SEMPRE
-    try {
-      if (["Settimana Attiva", "Prossima settimana"].includes(nome)) {
-        _UI_STATO_SISTEMA_();
+      if (e.value === true || e.value === "TRUE") {
+        _cbSet_(nome, r, c, true);
+        _logSafe_("SPUNTA PARTITO", fornitore, nome, giornoLabel);
       }
-    } catch (err) {}
 
-    // ✅ SNAPSHOT SEMPRE AFFIDABILE (solo 1 cella e solo tabella fornitori)
-    try {
-      if (["Settimana Attiva", "Prossima settimana"].includes(nome)) {
-        const rr2 = e.range;
-        const cells2 = rr2.getNumRows() * rr2.getNumColumns();
+      if (newIsEmpty) {
+        const last = _cbGet_(nome, r, c);
+        const eraTrue = (last === "TRUE");
 
-        if (cells2 === 1 && _rangeInterseca_(rr2, "A3:L20")) {
-          SNAPSHOT_FORNITORI_SAVE_(nome);
+        if (eraTrue) {
+          const resp = ui.alert(
+            "Conferma",
+            "Stai cancellando una checkbox che risulta già segnata come \"Partito\".\n\nVuoi davvero procedere?",
+            ui.ButtonSet.YES_NO
+          );
+          if (resp !== ui.Button.YES) {
+            e.range.insertCheckboxes();
+            e.range.setValue(true);
+            _cbSet_(nome, r, c, true);
+            _setBgCheckboxCorretto_(nome, sh, r, c);
+            return;
+          }
+          _cbSet_(nome, r, c, false);
         }
+
+        e.range.clearContent();
+        e.range.insertCheckboxes();
+        _setBgCheckboxCorretto_(nome, sh, r, c);
+        return;
       }
+
+      if (newIsFalse) {
+        _cbSet_(nome, r, c, false);
+        _logSafe_("TOGLIE SPUNTA", fornitore, nome, giornoLabel);
+
+        e.range.clearContent();
+        e.range.insertCheckboxes();
+        _setBgCheckboxCorretto_(nome, sh, r, c);
+        return;
+      }
+
+      if (!(dataBase instanceof Date)) return;
+
+    } finally {
+      // ✅ STATO SEMPRE
+      try {
+        if (["Settimana Attiva", "Prossima settimana"].includes(nome)) {
+          _UI_STATO_SISTEMA_();
+        }
+      } catch (err) {}
+
+      // ✅ SNAPSHOT SEMPRE AFFIDABILE (solo 1 cella e solo tabella fornitori)
+      try {
+        if (["Settimana Attiva", "Prossima settimana"].includes(nome)) {
+          const rr2 = e.range;
+          const cells2 = rr2.getNumRows() * rr2.getNumColumns();
+
+          if (cells2 === 1 && _rangeInterseca_(rr2, "A3:L20")) {
+            SNAPSHOT_FORNITORI_SAVE_(nome);
+          }
+        }
+
+        // =========================
+        // 🔧 FIX STILE NOMI FORNITORI (anti-copia/incolla)
+        // =========================
+        try {
+          const isSingleCell = e.range.getNumRows() === 1 && e.range.getNumColumns() === 1;
+          const isNomeCol = [1, 3, 5, 7, 9, 11].includes(c); // A,C,E,G,I,K
+
+          if (
+            isSingleCell &&
+            isNomeCol &&
+            r >= 3 && r <= 20 &&
+            ["Settimana Attiva", "Prossima settimana"].includes(nome)
+          ) {
+            const raw = (typeof e.value !== "undefined") ? e.value : e.range.getValue();
+            _fixStileNomeFornitore_(e.range, raw);
+          }
+        } catch (eFix) {}
+      } catch (e3) {}
 
       // =========================
-      // 🔧 FIX STILE NOMI FORNITORI (anti-copia/incolla)
+      // 🎨 RIPRISTINO SFONDO CHECKBOX (anti-cella bianca)
       // =========================
       try {
-        const isSingleCell = e.range.getNumRows() === 1 && e.range.getNumColumns() === 1;
-        const isNomeCol = [1, 3, 5, 7, 9, 11].includes(c); // A,C,E,G,I,K
+        const isSingle = e.range.getNumRows() === 1 && e.range.getNumColumns() === 1;
+        const isCkCol = [2,4,6,8,10,12].includes(c);
 
         if (
-          isSingleCell &&
-          isNomeCol &&
+          isSingle &&
+          isCkCol &&
           r >= 3 && r <= 20 &&
           ["Settimana Attiva", "Prossima settimana"].includes(nome)
         ) {
-          const raw = (typeof e.value !== "undefined") ? e.value : e.range.getValue();
-          _fixStileNomeFornitore_(e.range, raw);
+          _setBgCheckboxCorretto_(nome, sh, r, c);
         }
-      } catch (eFix) {}
-    } catch (e3) {}
-    // =========================
-    // 🎨 RIPRISTINO SFONDO CHECKBOX (anti-cella bianca)
-    // =========================
-    try {
-      const isSingle = e.range.getNumRows() === 1 && e.range.getNumColumns() === 1;
-      const isCkCol = [2,4,6,8,10,12].includes(c);
+      } catch (e) {}
+    }
 
-      if (
-        isSingle &&
-        isCkCol &&
-        r >= 3 && r <= 20 &&
-        ["Settimana Attiva", "Prossima settimana"].includes(nome)
-      ) {
-        _setBgCheckboxCorretto_(nome, sh, r, c);
-      }
-    } catch (e) {}    
-    
-  }
+  });
 }
 
 function _ensureCheckboxPulita_(cell) {
@@ -1383,6 +1342,28 @@ function _uiProssima_SetLink_(attivaSh, targetSheetName) {
     // ✅ se fallisce, puliamo SOLO N5 (mai N3)
     try { attivaSh.getRange("N5").clearContent(); } catch (e2) {}
   }
+}
+
+/****************************************************
+ * GUARDIAN STATO SISTEMA
+ * Se qualcuno modifica N3/N4/N5 → ricalcola banner
+ ****************************************************/
+function _GUARDIAN_STATO_UI_(e) {
+  try {
+    if (!e || !e.range) return;
+
+    const sh = e.range.getSheet();
+    if (!sh || sh.getName() !== "Settimana Attiva") return;
+
+    const a1 = e.range.getA1Notation();
+
+    // controlla solo celle stato UI
+    if (!["N3", "N4", "N5"].includes(a1)) return;
+
+    // ricostruisce SEMPRE lo stato reale
+    _bannerArchiviazioneAggiorna_();
+
+  } catch (err) {}
 }
 
 /**********************
@@ -1698,7 +1679,8 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
     const cN3 = sh.getRange("N3");
     const cur = String(cN3.getValue() ?? "").trim();
     if (!cur) {
-      _setStatoSistema_("OK"); // la tua funzione deve scrivere su N3
+      // ✅ NON decidere qui: fa decidere al banner
+      try { _bannerArchiviazioneAggiorna_(); } catch (e) {}
     }
   } catch (e) {}
 
@@ -2121,78 +2103,55 @@ function _uiSetRichLink_(cell, text, url) {
 }
 
 /**********************
- * UI AZIONI (N4) + LINK (N5) — linka SEMPRE a "AIUTO"
+ * UI AZIONI (N4)
+ * - Deve essere COERENTE con N3
+ * - NON TOCCA N5 (N5 lo gestisce il banner/Prossima settimana)
  **********************/
 function _uiSetAzioniSistema_(stato) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.getActive();
   const sh = ss.getSheetByName("Settimana Attiva");
   if (!sh) return;
 
   const cN4 = sh.getRange("N4");
-  const cN5 = sh.getRange("N5");
 
-  // reset link
-  try { cN5.clearContent(); } catch (e) {}
+  const lvl = String(stato || "").toUpperCase();
 
-  if (stato === "OK") {
-    cN4
-      .setValue("✅ Nessuna azione richiesta")
-      .setBackground("#e6f4ea")
-      .setFontColor("#1e7e34")
-      .setFontWeight("bold")
-      .setHorizontalAlignment("center")
-      .setVerticalAlignment("middle")
-      .setWrap(true);
-
-    // N5 vuota in OK
-    try { cN5.clearContent(); } catch (e) {}
-    return;
-  }
-
-  if (stato === "WARN") {
-    cN4
-      .setValue("👉 Controlla prima di continuare")
-      .setBackground("#fff4e5")
-      .setFontColor("#b26a00")
-      .setFontWeight("bold")
-      .setHorizontalAlignment("center")
-      .setVerticalAlignment("middle")
-      .setWrap(true);
-
-    // N5 vuota
-    try { cN5.clearContent(); } catch (e) {}
-    return;
-  }
-
-  // BLOCK
-  if (stato === "BLOCK") {
-    cN4
-      .setValue("👉 Archivia la settimana precedente per continuare")
-      .setBackground("#fdecea")
-      .setFontColor("#a71d2a")
-      .setFontWeight("bold")
-      .setHorizontalAlignment("center")
-      .setVerticalAlignment("middle")
-      .setWrap(true);
-
-    // N5: link SEMPRE al foglio "AIUTO"
+  const styleBase = (cell) => {
     try {
-      const shAiuto = ss.getSheetByName("AIUTO");
-      if (shAiuto) {
-        const url = ss.getUrl() + "#gid=" + shAiuto.getSheetId();
-        _uiSetRichLink_(cN5, "👉 Clicca qui (AIUTO) per archiviare la settimana", url);
-      } else {
-        // fallback: niente link ma istruzione chiara
-        cN5
-          .setValue("Vai su: Gestione Settimana → 📦 Archivia settimana")
-          .setHorizontalAlignment("center")
-          .setVerticalAlignment("middle")
-          .setWrap(true);
-      }
+      cell
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle")
+        .setWrap(true);
     } catch (e) {}
+  };
 
+  if (lvl === "OK") {
+    cN4.setValue("✅ Nessuna azione richiesta");
+    try { _stileAzione_(cN4, "OK"); } catch (e) {}
+    styleBase(cN4);
     return;
   }
+
+  if (lvl === "WARN") {
+    cN4.setValue("🟡 Controllo richiesto\nVerifica che M2 sia una data valida.");
+    try { _stileAzione_(cN4, "WARN"); } catch (e) {}
+    styleBase(cN4);
+    return;
+  }
+
+  if (lvl === "BLOCK") {
+    cN4.setValue(
+      "🔴 AZIONE NECESSARIA\n" +
+      "Archivia la settimana (Menu: 📦 Gestione Settimana → 📦 Archivia settimana)\n" +
+      "Poi verifica che M2 sia aggiornato al lunedì corrente."
+    );
+    try { _stileAzione_(cN4, "BLOCK"); } catch (e) {}
+    styleBase(cN4);
+    return;
+  }
+
+  // Stato sconosciuto: non fare danni
 }
 
 /**********************
@@ -2297,6 +2256,19 @@ function MINI_FIX_FORMAT_TAB_FORNITORI_() {
   } catch (e) {}
 }
 
+/****************************************************
+ * MASTER LOCK SISTEMA (return-safe)
+ ****************************************************/
+function _withSystemLock_(fn) {
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(8000)) return; // qui diamo più tempo: sono operazioni pesanti
+  try {
+    return fn();
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
 /**********************
  * ARCHIVIA SETTIMANA (PARANOIA MODE - NO-TOUCH TITLE)
  * - NON perde fornitori extra
@@ -2306,190 +2278,213 @@ function MINI_FIX_FORMAT_TAB_FORNITORI_() {
  * - NON tocca MAI il titolo (riga 1)
  **********************/
 function archiviaSettimana() {
-  garantisciStruttura();
+  return _withSystemLock_(() => {
 
-  const ss = SpreadsheetApp.getActive();
-  const ui = SpreadsheetApp.getUi();
+    // =========================
+    // 🛡️ ANTI DOPPIO-CLICK (GATE)
+    // =========================
+    const props = PropertiesService.getDocumentProperties();
+    const GATE_KEY = "ARCHIVIA_IN_CORSO";
 
-  const oggi = new Date();
-  oggi.setHours(0, 0, 0, 0);
+    if (props.getProperty(GATE_KEY) === "1") {
+      try { SpreadsheetApp.getActive().toast("⏳ Archiviazione già in corso…", "Gestione Settimana", 4); } catch (e) {}
+      return;
+    }
+    props.setProperty(GATE_KEY, "1");
 
-  const attiva = ss.getSheetByName("Settimana Attiva");
-  if (!attiva) return ui.alert("Foglio 'Settimana Attiva' non trovato.");
-
-  const dataBase = attiva.getRange("M2").getValue();
-  if (!(dataBase instanceof Date)) return ui.alert("Data base settimana non valida (M2).");
-
-  const sabato = new Date(dataBase);
-  sabato.setDate(sabato.getDate() + 5);
-  sabato.setHours(0, 0, 0, 0);
-
-  const lunedi = new Date(dataBase);
-  lunedi.setDate(lunedi.getDate() + 7);
-  lunedi.setHours(0, 0, 0, 0);
-
-  if (oggi < sabato || oggi > lunedi) {
-    ui.alert(
-      "Archiviazione consentita solo:\n\n" +
-      "• Sabato della settimana attiva\n" +
-      "• Domenica\n" +
-      "• Lunedì successivo"
-    );
-    return;
-  }
-
-  const conferma = ui.alert(
-    "Conferma archiviazione",
-    "La Settimana Attiva verrà archiviata.\nContinuare?",
-    ui.ButtonSet.YES_NO
-  );
-  if (conferma !== ui.Button.YES) {
-  _setStatoSistema_("WARN", "archiviazione annullata");
-  return;
-  }
-
-  try { _logSafe_("AVVIO ARCHIVIAZIONE", "", "MENU", ""); } catch (e) {}
-
-  // =========================
-  // BACKUP (non deve MAI bloccare l'archiviazione)
-  // =========================
-  try {
-    creaBackupPrimaDiArchiviazione_();
-  } catch (e) {
     try {
-      ui.alert(
-        "Backup saltato",
-        "⚠️ Non sono riuscito a creare il backup (permessi o cartella non accessibile).\n\n" +
-        "L'archiviazione continua comunque.\n\nDettagli: " + (e && e.message ? e.message : e),
-        ui.ButtonSet.OK
+      garantisciStruttura();
+
+      const ss = SpreadsheetApp.getActive();
+      const ui = SpreadsheetApp.getUi();
+
+      const oggi = new Date();
+      oggi.setHours(0, 0, 0, 0);
+
+      const attiva = ss.getSheetByName("Settimana Attiva");
+      if (!attiva) return ui.alert("Foglio 'Settimana Attiva' non trovato.");
+
+      const dataBase = attiva.getRange("M2").getValue();
+      if (!(dataBase instanceof Date)) return ui.alert("Data base settimana non valida (M2).");
+
+      const sabato = new Date(dataBase);
+      sabato.setDate(sabato.getDate() + 5);
+      sabato.setHours(0, 0, 0, 0);
+
+      const lunedi = new Date(dataBase);
+      lunedi.setDate(lunedi.getDate() + 7);
+      lunedi.setHours(0, 0, 0, 0);
+
+      if (oggi < sabato || oggi > lunedi) {
+        ui.alert(
+          "Archiviazione consentita solo:\n\n" +
+          "• Sabato della settimana attiva\n" +
+          "• Domenica\n" +
+          "• Lunedì successivo"
+        );
+        return;
+      }
+
+      const conferma = ui.alert(
+        "Conferma archiviazione",
+        "La Settimana Attiva verrà archiviata.\nContinuare?",
+        ui.ButtonSet.YES_NO
       );
-    } catch (err) {}
-  }
+      if (conferma !== ui.Button.YES) {
+        _setStatoSistema_("WARN", "archiviazione annullata");
+        return;
+      }
 
-  // =========================
-  // STORICO (resta nascosto: ok)
-  // =========================
-  try {
-    const storico = getStoricoSettimane_();
-    scriviIntestazioneArchiviazione_(storico, dataBase);
+      try { _logSafe_("AVVIO ARCHIVIAZIONE", "", "MENU", ""); } catch (e) {}
 
-    const righeStorico = costruisciRigheStorico_(attiva, dataBase);
-    if (righeStorico.length) {
-      const startRow = storico.getLastRow() + 1;
-      storico.getRange(startRow, 1, righeStorico.length, 4).setValues(righeStorico);
+      // =========================
+      // BACKUP (non deve MAI bloccare l'archiviazione)
+      // =========================
+      try {
+        creaBackupPrimaDiArchiviazione_();
+      } catch (e) {
+        try {
+          ui.alert(
+            "Backup saltato",
+            "⚠️ Non sono riuscito a creare il backup (permessi o cartella non accessibile).\n\n" +
+            "L'archiviazione continua comunque.\n\nDettagli: " + (e && e.message ? e.message : e),
+            ui.ButtonSet.OK
+          );
+        } catch (err) {}
+      }
+
+      // =========================
+      // STORICO (resta nascosto: ok)
+      // =========================
+      try {
+        const storico = getStoricoSettimane_();
+        scriviIntestazioneArchiviazione_(storico, dataBase);
+
+        const righeStorico = costruisciRigheStorico_(attiva, dataBase);
+        if (righeStorico.length) {
+          const startRow = storico.getLastRow() + 1;
+          storico.getRange(startRow, 1, righeStorico.length, 4).setValues(righeStorico);
+        }
+      } catch (e) {}
+
+      // =========================
+      // ASSICURA PROSSIMA SETTIMANA
+      // =========================
+      const nomeProssima = "Prossima settimana";
+      let prossima = ss.getSheetByName(nomeProssima);
+
+      if (!prossima) {
+        const template = ss.getSheetByName("TemplateSettimana");
+        if (!template) return ui.alert("Errore: TemplateSettimana non trovato.");
+
+        prossima = ss.insertSheet(nomeProssima);
+
+        const srcTpl = template.getDataRange();
+        const dstTpl = prossima.getRange(1, 1, srcTpl.getNumRows(), srcTpl.getNumColumns());
+        srcTpl.copyTo(dstTpl, { contentsOnly: false });
+
+        try { prossima.setFrozenRows(template.getFrozenRows()); } catch (e) {}
+        try { prossima.setFrozenColumns(template.getFrozenColumns()); } catch (e) {}
+
+        const lastCol = srcTpl.getNumColumns();
+        for (let col = 1; col <= lastCol; col++) {
+          try { prossima.setColumnWidth(col, template.getColumnWidth(col)); } catch (e) {}
+        }
+
+        const lastRow = srcTpl.getNumRows();
+        for (let row = 1; row <= lastRow; row++) {
+          try { prossima.setRowHeight(row, template.getRowHeight(row)); } catch (e) {}
+        }
+
+        try { prossima.showSheet(); } catch (e) {}
+
+        try { prossima.getRange("A1").setValue("PROSSIMA SETTIMANA"); } catch (e) {}
+
+        const d = new Date(dataBase);
+        d.setDate(d.getDate() + 7);
+        try { prossima.getRange("M2").setValue(d); } catch (e) {}
+      }
+
+      // =========================
+      // PATCH PRINCIPALE: COPIA SENZA TOCCARE IL TITOLO
+      // - copio SOLO da A2:M20 (riga 1 esclusa)
+      // - salvo e ripristino le CF di Settimana Attiva
+      // =========================
+      const SRC_BODY_A1 = "A2:M20";
+      const DST_BODY_A1 = "A2:M20";
+
+      // 1) Salva CF di Attiva (così non le perdi)
+      let cfAttiva = [];
+      try { cfAttiva = attiva.getConditionalFormatRules() || []; } catch (e) { cfAttiva = []; }
+
+      if (prossima) {
+        const srcBody = prossima.getRange(SRC_BODY_A1);
+        const dstBody = attiva.getRange(DST_BODY_A1);
+
+        // ✅ Foto valori (così non perdi dati/fornitori extra)
+        const snapshotValues = srcBody.getValues();
+
+        // 2) Copia FORMATI (solo body)
+        try {
+          // formato / font / bordi / allineamenti ecc
+          srcBody.copyFormatToRange(attiva, 1, 13, 2, 20); // col 1..13 (A..M), row 2..20
+        } catch (e) {
+          // fallback
+          try { srcBody.copyTo(dstBody, { formatOnly: true }); } catch (e2) {}
+        }
+
+        // 3) Copia VALIDAZIONI (checkbox ecc) solo body, senza toccare CF
+        try {
+          const dvs = srcBody.getDataValidations();
+          dstBody.setDataValidations(dvs);
+        } catch (e) {}
+
+        // 4) Ripristina i VALORI esatti
+        try { dstBody.setValues(snapshotValues); } catch (e) {}
+
+        try { SpreadsheetApp.flush(); } catch (e) {}
+      }
+
+      // ✅ titolo testo (solo valore) — ma NON tocchiamo formati titolo
+      try { attiva.getRange("A1").setValue("SETTIMANA ATTIVA"); } catch (e) {}
+
+      // ✅ NON deve portare le spunte "Partito" (solo nel body)
+      const checkRanges = ["B3:B20", "D3:D20", "F3:F20", "H3:H20", "J3:J20", "L3:L20"];
+      try { attiva.getRangeList(checkRanges).clearContent(); } catch (e) {}
+
+      // ✅ pulisce anche memoria interna checkbox (evita popup fantasma)
+      try { _cbClearRange_("Settimana Attiva", 3, 20, [2, 4, 6, 8, 10, 12]); } catch (e) {}
+
+      // 5) Ripristina CF di Attiva (Evidenzia oggi ecc)
+      try { attiva.setConditionalFormatRules(cfAttiva); } catch (e) {}
+
+      // ✅ Elimina Prossima (contenitore di passaggio)
+      if (prossima) {
+        try { ss.deleteSheet(prossima); } catch (e) {}
+      }
+
+      // ✅ reset UI creazione prossima (N1/N2/N3) perché Prossima non esiste più
+      try { _uiProssima_Reset_(attiva); } catch (e) {}
+
+      try { _logSafe_("FINE ARCHIVIAZIONE", "", "MENU", ""); } catch (e) {}
+
+      // ✅ resta su Settimana Attiva
+      try { attiva.showSheet(); } catch (e) {}
+      try { ss.setActiveSheet(attiva); } catch (e) {}
+
+      // ✅ ripristina evidenzia oggi (se vuoi proprio “cintura + bretelle”)
+      try { RIPRISTINA_EVIDENZIA_OGGI(); } catch (e) {}
+      try { AGGIORNA_HEADER_OGGI_SAFE_(); } catch (e) {}
+
+      _setStatoSistema_("OK");
+      garantisciStruttura();
+
+    } finally {
+      // ✅ RILASCIA GATE SEMPRE (anche se l'utente annulla o ci sono errori)
+      try { props.deleteProperty(GATE_KEY); } catch (e) {}
     }
-  } catch (e) {}
 
-  // =========================
-  // ASSICURA PROSSIMA SETTIMANA
-  // =========================
-  const nomeProssima = "Prossima settimana";
-  let prossima = ss.getSheetByName(nomeProssima);
-
-  if (!prossima) {
-    const template = ss.getSheetByName("TemplateSettimana");
-    if (!template) return ui.alert("Errore: TemplateSettimana non trovato.");
-
-    prossima = ss.insertSheet(nomeProssima);
-
-    const srcTpl = template.getDataRange();
-    const dstTpl = prossima.getRange(1, 1, srcTpl.getNumRows(), srcTpl.getNumColumns());
-    srcTpl.copyTo(dstTpl, { contentsOnly: false });
-
-    try { prossima.setFrozenRows(template.getFrozenRows()); } catch (e) {}
-    try { prossima.setFrozenColumns(template.getFrozenColumns()); } catch (e) {}
-
-    const lastCol = srcTpl.getNumColumns();
-    for (let col = 1; col <= lastCol; col++) {
-      try { prossima.setColumnWidth(col, template.getColumnWidth(col)); } catch (e) {}
-    }
-
-    const lastRow = srcTpl.getNumRows();
-    for (let row = 1; row <= lastRow; row++) {
-      try { prossima.setRowHeight(row, template.getRowHeight(row)); } catch (e) {}
-    }
-
-    try { prossima.showSheet(); } catch (e) {}
-
-    try { prossima.getRange("A1").setValue("PROSSIMA SETTIMANA"); } catch (e) {}
-
-    const d = new Date(dataBase);
-    d.setDate(d.getDate() + 7);
-    try { prossima.getRange("M2").setValue(d); } catch (e) {}
-  }
-
-  // =========================
-  // PATCH PRINCIPALE: COPIA SENZA TOCCARE IL TITOLO
-  // - copio SOLO da A2:M20 (riga 1 esclusa)
-  // - salvo e ripristino le CF di Settimana Attiva
-  // =========================
-  const SRC_BODY_A1 = "A2:M20";
-  const DST_BODY_A1 = "A2:M20";
-
-  // 1) Salva CF di Attiva (così non le perdi)
-  let cfAttiva = [];
-  try { cfAttiva = attiva.getConditionalFormatRules() || []; } catch (e) { cfAttiva = []; }
-
-  if (prossima) {
-    const srcBody = prossima.getRange(SRC_BODY_A1);
-    const dstBody = attiva.getRange(DST_BODY_A1);
-
-    // ✅ Foto valori (così non perdi dati/fornitori extra)
-    const snapshotValues = srcBody.getValues();
-
-    // 2) Copia FORMATI (solo body)
-    try {
-      // formato / font / bordi / allineamenti ecc
-      srcBody.copyFormatToRange(attiva, 1, 13, 2, 20); // col 1..13 (A..M), row 2..20
-    } catch (e) {
-      // fallback
-      try { srcBody.copyTo(dstBody, { formatOnly: true }); } catch (e2) {}
-    }
-
-    // 3) Copia VALIDAZIONI (checkbox ecc) solo body, senza toccare CF
-    try {
-      const dvs = srcBody.getDataValidations();
-      dstBody.setDataValidations(dvs);
-    } catch (e) {}
-
-    // 4) Ripristina i VALORI esatti
-    try { dstBody.setValues(snapshotValues); } catch (e) {}
-
-    try { SpreadsheetApp.flush(); } catch (e) {}
-  }
-
-  // ✅ titolo testo (solo valore) — ma NON tocchiamo formati titolo
-  try { attiva.getRange("A1").setValue("SETTIMANA ATTIVA"); } catch (e) {}
-
-  // ✅ NON deve portare le spunte "Partito" (solo nel body)
-  const checkRanges = ["B3:B20", "D3:D20", "F3:F20", "H3:H20", "J3:J20", "L3:L20"];
-  try { attiva.getRangeList(checkRanges).clearContent(); } catch (e) {}
-
-  // ✅ pulisce anche memoria interna checkbox (evita popup fantasma)
-  try { _cbClearRange_("Settimana Attiva", 3, 20, [2, 4, 6, 8, 10, 12]); } catch (e) {}
-
-  // 5) Ripristina CF di Attiva (Evidenzia oggi ecc)
-  try { attiva.setConditionalFormatRules(cfAttiva); } catch (e) {}
-
-  // ✅ Elimina Prossima (contenitore di passaggio)
-  if (prossima) {
-    try { ss.deleteSheet(prossima); } catch (e) {}
-  }
-
-  // ✅ reset UI creazione prossima (N1/N2/N3) perché Prossima non esiste più
-  try { _uiProssima_Reset_(attiva); } catch (e) {}
-
-  try { _logSafe_("FINE ARCHIVIAZIONE", "", "MENU", ""); } catch (e) {}
-
-  // ✅ resta su Settimana Attiva
-  try { attiva.showSheet(); } catch (e) {}
-  try { ss.setActiveSheet(attiva); } catch (e) {}
-
-  // ✅ ripristina evidenzia oggi (se vuoi proprio “cintura + bretelle”)
-  try { RIPRISTINA_EVIDENZIA_OGGI(); } catch (e) {}
-  try { AGGIORNA_HEADER_OGGI_SAFE_(); } catch (e) {}
-  _setStatoSistema_("OK");
-  garantisciStruttura();
+  });
 }
 
 /****************************************************
@@ -2566,46 +2561,48 @@ function _reminderArchiviazioneOnOpen_() {
 }
 
 /**********************
- * BANNER ARCHIVIAZIONE
- * - N3: stato (OK/BLOCK) tramite _setStatoSistema_
- * - N4: azione da fare (testo)
- * - N5: link cliccabile (AIUTO)
+ * BANNER ARCHIVIAZIONE (DETERMINISTICO)
+ * - Decide lo stato reale in base a M2 (lunedì corrente)
+ * - Scrive SEMPRE N3/N4/N5 coerenti tramite _UI_STATO_SISTEMA_()
+ * - Non lascia MAI "OK" se serve archiviare
  **********************/
 function _bannerArchiviazioneAggiorna_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName("Settimana Attiva");
   if (!sh) return;
 
-  // M2 = data base settimana
+  // Leggi M2 (data base settimana)
   const base = sh.getRange("M2").getValue();
-  if (!(base instanceof Date)) {
+
+  // Se M2 non è una data valida -> WARN
+  if (!(base instanceof Date) || isNaN(base.getTime())) {
     _UI_STATO_SISTEMA_("WARN");
     return;
   }
 
+  // Oggi (00:00)
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
-  const base0 = new Date(base);
-  base0.setHours(0, 0, 0, 0);
-
-  // Lunedì corrente
+  // Lunedì della settimana corrente (00:00)
   const mondayThisWeek = new Date(now);
   mondayThisWeek.setDate(mondayThisWeek.getDate() - ((mondayThisWeek.getDay() + 6) % 7));
   mondayThisWeek.setHours(0, 0, 0, 0);
 
-  const isOk = (base0.getTime() === mondayThisWeek.getTime());
+  // Base (00:00)
+  const base0 = new Date(base);
+  base0.setHours(0, 0, 0, 0);
 
-  if (isOk) {
+  // Se M2 == lunedì corrente -> OK
+  if (base0.getTime() === mondayThisWeek.getTime()) {
     _UI_STATO_SISTEMA_("OK");
-    // se hai la tua logica di auto-hide dell’AIUTO, qui puoi nasconderlo:
+    // se hai auto-hide aiuto archiviazione
     try { _aiutoArchiviazione_SetHidden_(true); } catch (e) {}
     return;
   }
 
+  // Altrimenti -> BLOCK (settimana da archiviare)
   _UI_STATO_SISTEMA_("BLOCK");
-
-  // se vuoi mostrare l’AIUTO quando serve:
   try { _aiutoArchiviazione_SetHidden_(false); } catch (e) {}
 }
 
