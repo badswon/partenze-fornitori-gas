@@ -170,6 +170,7 @@ function _hcUpdateCounters_(hadInterventions) {
  ****************************************************/
 
 function onOpen(e) {
+  try { _bannerArchiviazioneAggiorna_(); } catch (e) {}
   // 1) Menu SEMPRE per primi
   try { BUILD_MENUS_(); } catch (err) {}
 
