@@ -2,102 +2,98 @@ function AIUTO_RAPIDO() {
   const ui = SpreadsheetApp.getUi();
 
   const msg =
-`📦 AIUTO RAPIDO — USO QUOTIDIANO
-================================
+`📦 AIUTO RAPIDO (USO QUOTIDIANO)
 
-✅ 1) DOVE SI LAVORA
--------------------
-• Il lavoro di tutti i giorni si fa in: "Settimana Attiva"
-• Ogni giorno ha 2 colonne:
-  - Colonna NOME fornitore
-  - Colonna CHECKBOX "Partito" (a fianco)
-• Usa SOLO le righe da 3 a 20.
-➡️ Le righe sotto sono bloccate automaticamente.
+✅ COSA DEVI FARE OGNI GIORNO
+1) Lavora SOLO nel foglio: “Settimana Attiva”
+2) Scrivi i fornitori nelle righe da 3 a 20, nel giorno giusto
+3) Quando un fornitore è partito, spunta la casella “Partito” accanto al suo nome
+4) Fine.
 
-✅ 2) INSERIRE UN FORNITORE
---------------------------
-• Scrivi il nome del fornitore nella colonna NOME del giorno giusto.
-➡️ La checkbox viene creata automaticamente solo se c’è un nome.
+------------------------------------------------
 
-✅ 3) FORNITORE “NON IN PARTENZA”
---------------------------------
-• Se un fornitore NON deve partire, scrivilo iniziando con:
-  - "- " (trattino + spazio)
-Esempio: "- RHIAG"
-➡️ In quel caso la checkbox NON è spuntabile (è bloccata apposta).
+🟦 COME INSERIRE UN FORNITORE (in 10 secondi)
+• Vai al giorno giusto
+• Scrivi il nome del fornitore nella colonna del giorno
+➡️ La casella “Partito” comparirà da sola accanto al nome
 
-✅ 4) SPUNTARE “PARTITO”
------------------------
-• Spunta la checkbox SOLO quando il fornitore è davvero partito.
-• Non è possibile spuntare giorni futuri.
-• Se togli una spunta già data, viene chiesta conferma.
+------------------------------------------------
 
-⚠️ 5) MODIFICHE SU GIORNI PASSATI
----------------------------------
-• Se scrivi o modifichi un giorno PASSATO, compare sempre un popup.
-➡️ Serve per evitare modifiche accidentali nello storico.
+☑️ COME SEGNARE “PARTITO”
+• Spunta la casella SOLO quando è davvero partito
+• Se provi a spuntare un giorno futuro, il sistema te lo impedisce (ed è normale)
 
-✅ 6) COSA VEDERE A COLPO D’OCCHIO
----------------------------------
-• Il giorno corrente è evidenziato.
-• I giorni “CHIUSI” (da Impostazioni) sono marcati.
-• In alto a destra:
-  - N3 = STATO SISTEMA
-  - N4 = AZIONE DA FARE (se serve)
-  - N5 = LINK (solo se necessario)
+------------------------------------------------
 
-============================================================
-📦 GESTIONE SETTIMANA — FUNZIONI (MENU PER TUTTI)
-============================================================
+🚫 SE UN FORNITORE NON DEVE PARTIRE OGGI
+Scrivi il nome così:
+- NOME FORNITORE
+(esempio: - RHIAG)
 
-👉 CREARE "PROSSIMA SETTIMANA"
------------------------------
-• Vai su "Settimana Attiva"
-• SPUNTA la checkbox in N2
-➡️ Risultato:
-   - viene creato il foglio "Prossima settimana"
-   - N1 cambia stato (✅ pronta)
-   - N5 mostra il link per aprirla
-   - N2 resta spuntata finché Prossima settimana esiste
+➡️ In questo modo si capisce che oggi NON deve partire.
 
-📦 ARCHIVIARE LA SETTIMANA
---------------------------
-Menu: 📦 Gestione Settimana → 📦 Archivia settimana
-➡️ Risultato:
-   - salva nello storico (solo per controllo)
-   - aggiorna la Settimana Attiva
-   - Prossima settimana viene eliminata (se presente)
-   - stato sistema torna OK
+------------------------------------------------
 
-🗑️ ELIMINARE "PROSSIMA SETTIMANA" (FORZATO)
--------------------------------------------
-Menu: 📦 Gestione Settimana → 🧨 Elimina Prossima settimana (FORZATO)
-➡️ Risultato:
-   - foglio eliminato
-   - N1 e N2 tornano allo stato base
-   - eventuali link spariscono
+🟥 SE VEDI UN AVVISO ROSSO “SETTIMANA DA ARCHIVIARE”
+Vuol dire che sei in ritardo di una settimana.
+Fai così:
 
-👤 LOG OPERATIVO - UTENTE
--------------------------
-Menu: 📦 Gestione Settimana → 👤 Imposta mio nome (Log)
-• Serve per identificare chi fa le operazioni.
-• Usalo se nel Log compare "Utente non rilevabile".
+Menu in alto:
+📦 Gestione Settimana → 📦 Archivia settimana
 
-🩺 HEALTHCHECK VISIVO
----------------------
-Menu: 📦 Gestione Settimana → 🩺 Healthcheck visivo
-• Ripara automaticamente:
-  - intestazioni
-  - evidenze del giorno
-  - stato Prossima settimana
-• Il controllo viene fatto anche in automatico.
+Poi controlla che il box in alto a destra torni verde ✅
 
-------------------------------------------------------------
-🔧 NOTA
-------------------------------------------------------------
-• Esiste anche un menu "🔧 Tecnico" con funzioni di manutenzione.
-• Di norma NON serve per il lavoro quotidiano.
-`;
+------------------------------------------------
+
+⚠️ COSE IMPORTANTI (EVITA ERRORI)
+• Non lavorare sotto la riga 20
+• Non incollare “blocchi” di celle: modifica 1 cella alla volta
+• Non cancellare le caselle “Partito” (se succede, si ricreano da sole)
+
+------------------------------------------------
+
+🆘 SE QUALCOSA SEMBRA STRANO
+Menu:
+📦 Gestione Settimana → 🩺 Healthcheck visivo
+(È un “ripara tutto” sicuro)
+
+Fine 🙂
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+😏 Se dopo aver letto questo aiuto ancora non sai cosa fare
+vuol dire che sei tonto/a come il cazzo in acqua.
+
+👉 Chiedi a Francesco.
+Buccabbeltu! 🤡😂`;
 
   ui.alert("📦 Aiuto rapido", msg, ui.ButtonSet.OK);
 }
