@@ -73,6 +73,72 @@ function TECNICO_ProteggiTemplateSettimana() {
 }
 
 /****************************************************
+ * DIAGNOSTICA EMAIL "FORNITORI NON PARTITI"
+ * (Invisibile ai colleghi: usa DocumentProperties)
+ ****************************************************/
+
+function _emailNonPartitiDiagSet_(outcome, detail) {
+  try {
+    const props = PropertiesService.getDocumentProperties();
+    const tz = Session.getScriptTimeZone();
+    const now = new Date();
+
+    props.setProperty(
+      "EMAIL_NONPARTITI_LAST_RUN",
+      Utilities.formatDate(now, tz, "yyyy-MM-dd HH:mm:ss")
+    );
+
+    props.setProperty("EMAIL_NONPARTITI_LAST_OUTCOME", String(outcome || ""));
+    props.setProperty("EMAIL_NONPARTITI_LAST_DETAIL", String(detail || ""));
+
+    // contatore errori (facoltativo ma utile)
+    if (String(outcome || "").toUpperCase() === "ERROR") {
+      const n = Number(props.getProperty("EMAIL_NONPARTITI_ERROR_COUNT") || "0") + 1;
+      props.setProperty("EMAIL_NONPARTITI_ERROR_COUNT", String(n));
+    }
+  } catch (e) {}
+}
+
+function _emailNonPartitiDiagGet_() {
+  const props = PropertiesService.getDocumentProperties();
+  return {
+    lastRun: props.getProperty("EMAIL_NONPARTITI_LAST_RUN") || "—",
+    outcome: props.getProperty("EMAIL_NONPARTITI_LAST_OUTCOME") || "—",
+    detail: props.getProperty("EMAIL_NONPARTITI_LAST_DETAIL") || "—",
+    errCount: props.getProperty("EMAIL_NONPARTITI_ERROR_COUNT") || "0",
+  };
+}
+
+/**
+ * Menu tecnico: mostra stato ultimo giro
+ */
+function TECNICO_EmailNonPartiti_Stato() {
+  const ui = SpreadsheetApp.getUi();
+  const d = _emailNonPartitiDiagGet_();
+
+  ui.alert(
+    "📧 Stato: Avviso Fornitori Non Partiti",
+    "Ultima esecuzione: " + d.lastRun + "\n" +
+    "Esito: " + d.outcome + "\n" +
+    "Dettaglio: " + d.detail + "\n" +
+    "Errori totali registrati: " + d.errCount,
+    ui.ButtonSet.OK
+  );
+}
+
+/**
+ * (Facoltativo) reset diagnostica
+ */
+function TECNICO_EmailNonPartiti_ResetDiag() {
+  const props = PropertiesService.getDocumentProperties();
+  props.deleteProperty("EMAIL_NONPARTITI_LAST_RUN");
+  props.deleteProperty("EMAIL_NONPARTITI_LAST_OUTCOME");
+  props.deleteProperty("EMAIL_NONPARTITI_LAST_DETAIL");
+  props.deleteProperty("EMAIL_NONPARTITI_ERROR_COUNT");
+  SpreadsheetApp.getUi().alert("Diagnostica email non partiti resettata.");
+}
+
+/****************************************************
  * FIX HARD VALIDAZIONI UI (N18 + eventuali “contagi” tipo L3)
  * - Ripulisce data validation “sbagliate”
  * - Ricrea N18 come checkbox pulita
@@ -207,6 +273,46 @@ function MANUT_Storico_ScriviIntestazione_() {
   SpreadsheetApp.getUi().alert("Intestazione storico scritta.");
 }
 
+/****************************************************
+ * 🔎 MOSTRA ULTIMA DIAGNOSI AVVISO FORNITORI
+ * (solo lettura — zero modifiche)
+ ****************************************************/
+function TECNICO_MostraDiagnosiAvvisoFornitori() {
+  const ui = SpreadsheetApp.getUi();
+  const props = PropertiesService.getDocumentProperties();
+
+  const raw = props.getProperty("AVVISO_NONPARTITI_LAST");
+
+  if (!raw) {
+    ui.alert(
+      "Diagnosi avviso fornitori",
+      "Nessuna diagnosi registrata.\n\n" +
+      "La funzione non è ancora stata eseguita oppure non ha scritto log.",
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+
+  try {
+    const obj = JSON.parse(raw);
+
+    let msg = "Ultima esecuzione controllo fornitori:\n\n";
+
+    Object.keys(obj).forEach(k => {
+      msg += `${k}: ${obj[k]}\n`;
+    });
+
+    ui.alert("Diagnosi avviso fornitori", msg, ui.ButtonSet.OK);
+
+  } catch (e) {
+    ui.alert(
+      "Diagnosi avviso fornitori",
+      "Log presente ma non leggibile:\n\n" + raw,
+      ui.ButtonSet.OK
+    );
+  }
+}
+
 function BUILD_MENUS_() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu("TEST")
@@ -237,11 +343,15 @@ function BUILD_MENUS_() {
     .addItem("📝 Scrivi intestazione storico", "MANUT_Storico_ScriviIntestazione_")
     .addSeparator()
     .addItem("📧 Test: giornata consente email?", "MANUT_Email_TestGiornataConsente_")
+    .addItem("📧 Stato: email non partiti", "TECNICO_EmailNonPartiti_Stato")
+    .addItem("🧹 Reset stato email non partiti", "TECNICO_EmailNonPartiti_ResetDiag")
     .addSeparator()
     .addItem("🔧 Ripara struttura fogli", "garantisciStruttura")
     .addItem("🧽 Bonifica evidenza OGGI", "BONIFICA_EVIDENZA_OGGI")
     .addItem("☑️ Fix checkbox Template", "FIX_CHECKBOX_TEMPLATE")
     .addItem("🔒 Proteggi TemplateSettimana", "TECNICO_ProteggiTemplateSettimana")
     .addItem("🧯 Ripristino completo Attiva", "TECNICO_RipristinoCompletoAttiva")
+    .addSeparator()
+    .addItem("🔎 Diagnosi avviso fornitori", "TECNICO_MostraDiagnosiAvvisoFornitori")
     .addToUi();
 }
