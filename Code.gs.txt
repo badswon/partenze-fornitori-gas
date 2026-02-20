@@ -1367,24 +1367,46 @@ function _GUARDIAN_STATO_UI_(e) {
 }
 
 /**********************
- * EMAIL FORNITORI NON PARTITI (BLINDATA + ANTI TIMEOUT)
- * - Lun–Ven: invia solo 16:55–17:35 (trigger 5–6pm può arrivare in ritardo)
- * - Sabato: invia solo 11:50–12:30 (trigger 12–1pm può arrivare “tardi”)
+ * EMAIL FORNITORI NON PARTITI (ULTRA-SAFE + DIAGNOSTICA)
+ * - Lun–Ven: invia solo 16:55–17:35
+ * - Sabato: invia solo 11:50–12:30
  * - Domenica: mai
  * - Anti-duplicati: max 1 invio per slot al giorno
- * - Robustezza: Lock + openById con retry + letture minimali (A3:L20)
+ * - Robustezza: Lock + openById retry + letture minimali (A3:L20)
+ *
+ * EXTRA (ultra-safe):
+ * - Scrive diagnostica in DocumentProperties:
+ *   AVVISO_NONPARTITI_LAST_* (timestamp, outcome, reason)
+ * - Non tocca N19/N20 (zero conflitti con healthcheck/UI)
  **********************/
 function avvisoFornitoriNonPartiti() {
-  // ✅ LOCK: evita esecuzioni concorrenti (spesso causa di timeout)
   const lock = LockService.getDocumentLock();
   if (!lock.tryLock(20 * 1000)) return;
+
+  const props = PropertiesService.getDocumentProperties();
+
+  // diagnostica (non invasiva)
+  const _diagSet_ = (outcome, reason, extra) => {
+    try {
+      props.setProperty("AVVISO_NONPARTITI_LAST_TS", String(Date.now()));
+      props.setProperty("AVVISO_NONPARTITI_LAST_OUTCOME", String(outcome || ""));
+      props.setProperty("AVVISO_NONPARTITI_LAST_REASON", String(reason || ""));
+      if (typeof extra !== "undefined") {
+        props.setProperty("AVVISO_NONPARTITI_LAST_EXTRA", String(extra || ""));
+      }
+    } catch (e) {}
+  };
 
   try {
     // 0) Se oggi è segnato CHIUSO in Impostazioni, non inviare
     try {
-      if (typeof giornataConsenteEmail === "function" && !giornataConsenteEmail()) return;
+      if (typeof giornataConsenteEmail === "function" && !giornataConsenteEmail()) {
+        _diagSet_("SKIP", "CHIUSO_DA_IMPOSTAZIONI");
+        return;
+      }
     } catch (e) {
       // se la funzione ha problemi, meglio NON inviare
+      _diagSet_("SKIP", "ERRORE_giornataConsenteEmail", (e && e.message) ? e.message : e);
       return;
     }
 
@@ -1394,34 +1416,54 @@ function avvisoFornitoriNonPartiti() {
 
     // 1) Finestra ammessa in base al giorno
     let slot = "";
-    if (day === 0) return; // Domenica mai
+    if (day === 0) {
+      _diagSet_("SKIP", "DOMENICA");
+      return;
+    }
 
     if (day >= 1 && day <= 5) {
       // Lun–Ven
       const start = 16 * 60 + 55; // 16:55
       const end   = 17 * 60 + 35; // 17:35
-      if (minutesNow < start || minutesNow > end) return;
+      if (minutesNow < start || minutesNow > end) {
+        _diagSet_("SKIP", "FUORI_FINESTRA_ORARIA_WEEKDAY_17");
+        return;
+      }
       slot = "WEEKDAY_17";
     } else if (day === 6) {
       // Sabato
       const start = 11 * 60 + 50; // 11:50
       const end   = 12 * 60 + 30; // 12:30
-      if (minutesNow < start || minutesNow > end) return;
+      if (minutesNow < start || minutesNow > end) {
+        _diagSet_("SKIP", "FUORI_FINESTRA_ORARIA_SAT_12");
+        return;
+      }
       slot = "SAT_12";
     }
 
     // ✅ Apri il file per ID con retry (anti timeout Drive)
     const SS_ID = "1LV-C-gPJ5faorkEJiDMwkQk2ZR4yav5AoUvVpsZ2X20";
-    const ss = _openSSByIdRetry_(SS_ID);
+    let ss;
+    try {
+      ss = _openSSByIdRetry_(SS_ID);
+    } catch (e) {
+      _diagSet_("ERROR", "OPEN_BY_ID_RETRY_FAIL", (e && e.message) ? e.message : e);
+      return;
+    }
 
     const sh = ss.getSheetByName("Settimana Attiva");
-    if (!sh) return;
+    if (!sh) {
+      _diagSet_("SKIP", "SHEET_SET_TIMANA_ATTIVA_MANCANTE");
+      return;
+    }
 
     const dataBase = sh.getRange("M2").getValue();
-    if (!(dataBase instanceof Date)) return;
+    if (!(dataBase instanceof Date)) {
+      _diagSet_("SKIP", "M2_NON_DATA");
+      return;
+    }
 
     // 2) Anti-duplicati: al massimo 1 invio per slot al giorno
-    const props = PropertiesService.getDocumentProperties();
     const tz = Session.getScriptTimeZone();
     const todayKey = Utilities.formatDate(
       new Date(now.getFullYear(), now.getMonth(), now.getDate()),
@@ -1429,14 +1471,20 @@ function avvisoFornitoriNonPartiti() {
       "yyyy-MM-dd"
     );
     const antiDupKey = `AVVISO_NONPARTITI_SENT|${todayKey}|${slot}`;
-    if (props.getProperty(antiDupKey) === "1") return;
+    if (props.getProperty(antiDupKey) === "1") {
+      _diagSet_("SKIP", "ANTI_DUPLICATO", antiDupKey);
+      return;
+    }
 
     // 3) Capisci che colonna leggere (Lun..Sab in tabella)
     const oggi0 = new Date(now); oggi0.setHours(0, 0, 0, 0);
     const base0 = new Date(dataBase); base0.setHours(0, 0, 0, 0);
 
     const diff = Math.floor((oggi0.getTime() - base0.getTime()) / 86400000);
-    if (diff < 0 || diff > 5) return; // fuori settimana tabellata (Lun..Sab)
+    if (diff < 0 || diff > 5) {
+      _diagSet_("SKIP", "FUORI_SETTIMANA_TABELLA", `diff=${diff}`);
+      return; // fuori settimana tabellata (Lun..Sab)
+    }
 
     const nomeCols  = [1, 3, 5, 7, 9, 11];
     const checkCols = [2, 4, 6, 8, 10, 12];
@@ -1460,13 +1508,15 @@ function avvisoFornitoriNonPartiti() {
       if (nome !== "" && check !== true) nonPartiti.push(nome);
     }
 
-    if (!nonPartiti.length) return;
+    if (!nonPartiti.length) {
+      _diagSet_("SKIP", "NESSUN_NON_PARTITO");
+      return;
+    }
 
     // 4) Invia
     const giorni = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
     const dataStr = Utilities.formatDate(oggi0, tz, "dd/MM/yyyy");
     const giornoStr = giorni[day];
-
     const oraTarget = (day === 6) ? "12:00" : "17:00";
 
     const subject = `⚠️ Fornitori non partiti – ${giornoStr} ${dataStr}`;
@@ -1475,10 +1525,17 @@ function avvisoFornitoriNonPartiti() {
     nonPartiti.forEach(n => body += `– ${n}\n`);
     body += "\nVerificare prima della chiusura.";
 
-    MailApp.sendEmail("ricambi.euro@gmail.com", subject, body);
+    try {
+      MailApp.sendEmail("ricambi.euro@gmail.com", subject, body);
+    } catch (e) {
+      _diagSet_("ERROR", "MAILAPP_SEND_FAIL", (e && e.message) ? e.message : e);
+      return;
+    }
 
     // segna invio fatto (anti duplicati)
-    props.setProperty(antiDupKey, "1");
+    try { props.setProperty(antiDupKey, "1"); } catch (e) {}
+
+    _diagSet_("SENT", "OK", `count=${nonPartiti.length}`);
 
   } finally {
     try { lock.releaseLock(); } catch (e) {}
@@ -1524,6 +1581,168 @@ function _withRetry_(fn, opts) {
     }
   }
   throw lastErr;
+}
+
+function avvisoFornitoriNonPartiti_DIAGNOSTICA() {
+  const lines = [];
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+  const day = now.getDay();
+  const minutesNow = now.getHours() * 60 + now.getMinutes();
+
+  const giorni = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
+  lines.push(`ORA: ${Utilities.formatDate(now, tz, "dd/MM/yyyy HH:mm:ss")} (${giorni[day]})`);
+  lines.push(`MINUTI: ${minutesNow}`);
+
+  // 1) Lock
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(1500)) {
+    lines.push("STOP: lock non acquisito (un'altra esecuzione è in corso).");
+    Logger.log(lines.join("\n"));
+    SpreadsheetApp.getActive().toast(lines.join(" | "), "DIAG avviso", 10);
+    return;
+  }
+
+  try {
+    // 2) giornataConsenteEmail
+    try {
+      if (typeof giornataConsenteEmail === "function") {
+        const ok = giornataConsenteEmail();
+        lines.push(`giornataConsenteEmail(): ${ok}`);
+        if (!ok) {
+          lines.push("STOP: giornataConsenteEmail() = false (oggi marcato CHIUSO o regola blocca).");
+          Logger.log(lines.join("\n"));
+          SpreadsheetApp.getActive().toast(lines.join(" | "), "DIAG avviso", 10);
+          return;
+        }
+      } else {
+        lines.push("WARN: giornataConsenteEmail() non esiste (ok).");
+      }
+    } catch (e) {
+      lines.push("STOP: giornataConsenteEmail() ha generato errore -> per sicurezza NON invio.");
+      lines.push(`ERR: ${e && e.message ? e.message : e}`);
+      Logger.log(lines.join("\n"));
+      SpreadsheetApp.getActive().toast(lines.join(" | "), "DIAG avviso", 10);
+      return;
+    }
+
+    // 3) Finestra oraria + slot
+    let slot = "";
+    if (day === 0) {
+      lines.push("STOP: Domenica (mai).");
+      Logger.log(lines.join("\n"));
+      SpreadsheetApp.getActive().toast(lines.join(" | "), "DIAG avviso", 10);
+      return;
+    }
+
+    if (day >= 1 && day <= 5) {
+      const start = 16 * 60 + 55;
+      const end = 17 * 60 + 35;
+      slot = "WEEKDAY_17";
+      lines.push(`Slot: ${slot} | Finestra: 16:55–17:35`);
+      if (minutesNow < start || minutesNow > end) {
+        lines.push("STOP: fuori finestra oraria weekday.");
+        Logger.log(lines.join("\n"));
+        SpreadsheetApp.getActive().toast(lines.join(" | "), "DIAG avviso", 10);
+        return;
+      }
+    } else if (day === 6) {
+      const start = 11 * 60 + 50;
+      const end = 12 * 60 + 30;
+      slot = "SAT_12";
+      lines.push(`Slot: ${slot} | Finestra: 11:50–12:30`);
+      if (minutesNow < start || minutesNow > end) {
+        lines.push("STOP: fuori finestra oraria sabato.");
+        Logger.log(lines.join("\n"));
+        SpreadsheetApp.getActive().toast(lines.join(" | "), "DIAG avviso", 10);
+        return;
+      }
+    }
+
+    // 4) Anti-duplicati
+    const props = PropertiesService.getDocumentProperties();
+    const todayKey = Utilities.formatDate(new Date(now.getFullYear(), now.getMonth(), now.getDate()), tz, "yyyy-MM-dd");
+    const antiDupKey = `AVVISO_NONPARTITI_SENT|${todayKey}|${slot}`;
+    const sent = props.getProperty(antiDupKey);
+    lines.push(`AntiDupKey: ${antiDupKey} = ${sent}`);
+    if (sent === "1") {
+      lines.push("STOP: anti-duplicati già impostato (email già inviata oggi per questo slot).");
+      Logger.log(lines.join("\n"));
+      SpreadsheetApp.getActive().toast(lines.join(" | "), "DIAG avviso", 10);
+      return;
+    }
+
+    // 5) Lettura rapida (solo per capire se avrebbe inviato)
+    const SS_ID = "1LV-C-gPJ5faorkEJiDMwkQk2ZR4yav5AoUvVpsZ2X20";
+    const ss = _openSSByIdRetry_(SS_ID);
+    const sh = ss.getSheetByName("Settimana Attiva");
+    if (!sh) { lines.push("STOP: foglio Settimana Attiva non trovato."); throw new Error(lines.join("\n")); }
+
+    const dataBase = sh.getRange("M2").getValue();
+    if (!(dataBase instanceof Date)) { lines.push("STOP: M2 non è una data valida."); throw new Error(lines.join("\n")); }
+
+    const oggi0 = new Date(now); oggi0.setHours(0,0,0,0);
+    const base0 = new Date(dataBase); base0.setHours(0,0,0,0);
+    const diff = Math.floor((oggi0.getTime() - base0.getTime()) / 86400000);
+    lines.push(`M2(base): ${Utilities.formatDate(base0, tz, "dd/MM/yyyy")} | diff=${diff}`);
+    if (diff < 0 || diff > 5) {
+      lines.push("STOP: oggi fuori settimana tabellata (diff <0 o >5).");
+      Logger.log(lines.join("\n"));
+      SpreadsheetApp.getActive().toast(lines.join(" | "), "DIAG avviso", 10);
+      return;
+    }
+
+    const nomeCols  = [1, 3, 5, 7, 9, 11];
+    const checkCols = [2, 4, 6, 8, 10, 12];
+    const colNome  = nomeCols[diff];
+    const colCheck = checkCols[diff];
+
+    const NUM_ROWS = 18;
+    const nomi   = sh.getRange(3, colNome,  NUM_ROWS, 1).getValues();
+    const checks = sh.getRange(3, colCheck, NUM_ROWS, 1).getValues();
+
+    let countNonPartiti = 0;
+    for (let i = 0; i < NUM_ROWS; i++) {
+      const raw = nomi[i][0];
+      const nome = String(raw ?? "").replace(/\u00A0/g, " ").trim();
+      const check = checks[i][0];
+      if (typeof _isNoPartenza_ === "function" && _isNoPartenza_(raw)) continue;
+      if (nome !== "" && check !== true) countNonPartiti++;
+    }
+
+    lines.push(`Non partiti trovati: ${countNonPartiti}`);
+    lines.push(countNonPartiti ? "OK: se fossimo in fascia e senza antidup, invierebbe." : "STOP: nessun non-partito -> non invia.");
+
+    Logger.log(lines.join("\n"));
+    SpreadsheetApp.getActive().toast(lines.join(" | "), "DIAG avviso", 10);
+
+  } finally {
+    try { lock.releaseLock(); } catch(e) {}
+  }
+}
+
+/**********************
+ * DIAGNOSTICA “SOLO IO” (toast)
+ * - Non scrive sul foglio (niente N19)
+ * - Mostra l’ultimo esito della routine email non-partiti
+ **********************/
+function AVVISO_NONPARTITI_DIAGNOSTICA_MIA_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const props = PropertiesService.getDocumentProperties();
+  const tz = Session.getScriptTimeZone();
+
+  const ts = Number(props.getProperty("AVVISO_NONPARTITI_LAST_TS") || "0");
+  const outcome = props.getProperty("AVVISO_NONPARTITI_LAST_OUTCOME") || "(n/a)";
+  const reason = props.getProperty("AVVISO_NONPARTITI_LAST_REASON") || "(n/a)";
+  const extra = props.getProperty("AVVISO_NONPARTITI_LAST_EXTRA") || "";
+
+  let when = "mai";
+  if (ts && !isNaN(ts)) {
+    when = Utilities.formatDate(new Date(ts), tz, "dd/MM HH:mm:ss");
+  }
+
+  const msg = `Email non-partiti: ${outcome} (${reason})\nUltimo evento: ${when}` + (extra ? `\nDettagli: ${extra}` : "");
+  ss.toast(msg, "Diagnostica Email", 10);
 }
 
 function _openSSByIdRetry_(id) {
