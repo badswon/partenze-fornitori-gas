@@ -193,26 +193,31 @@ function _SCHEDULE_HEALTHCHECK_AFTER_OPEN_() {
     .create();
 }
 
-/**
- * Esegue healthcheck e poi:
- * - ripristina UI protette
- * - ripara N18/checkbox se necessario
- * - rimuove il trigger che l’ha chiamata
- * - toglie la flag pending
- */
 function _RUN_HEALTHCHECK_DEFERRED_() {
   const props = PropertiesService.getDocumentProperties();
   const key = "HC_DEFERRED_PENDING";
 
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(20 * 1000)) return;
+
   try {
-    // Healthcheck principale
+    // 1) Healthcheck principale
     try { HEALTHCHECK_VISIVO(); } catch (e) {}
 
-    // Ripristini UI colonna N
+    // 2) Ripara validazioni checkbox (può toccare N18)
+    try { RIPARA_VALIDAZIONI_CHECKBOX_HARD_(); } catch (e) {}
+
+    // 3) Ripristini UI colonna N (N18 inclusa)
     try { UI_RIPRISTINA_CELLE_N_PROTETTE_(); } catch (e) {}
 
-    // Ripara validazioni checkbox (N18 + tabella) se si sono sporcate
-    try { RIPARA_VALIDAZIONI_CHECKBOX_HARD_(); } catch (e) {}
+    // 4) ✅ “cintura + bretelle”: N18 NORMALIZZATA PER ULTIMA
+    try {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const sh = ss.getSheetByName("Settimana Attiva");
+      if (sh && typeof _ensureQuickHelpN18Checkbox_ === "function") {
+        _ensureQuickHelpN18Checkbox_(sh, true);
+      }
+    } catch (e) {}
 
   } finally {
     // clear pending
@@ -227,6 +232,8 @@ function _RUN_HEALTHCHECK_DEFERRED_() {
         }
       }
     } catch (e) {}
+
+    try { lock.releaseLock(); } catch (e) {}
   }
 }
 
@@ -244,29 +251,33 @@ function RIPARA_VALIDAZIONI_CHECKBOX_HARD_() {
     const sh = ss.getSheetByName(name);
     if (!sh) continue;
 
-    // 1) N18: deve essere SOLO checkbox, senza validazioni "strane"
-    try {
-      const c = sh.getRange("N18");
-      c.clearContent();
-      c.clearDataValidations();
-      c.insertCheckboxes();
-      c.setValue(false);
-      c.setHorizontalAlignment("center").setVerticalAlignment("middle");
-    } catch (e) {}
-
-    // 2) Tabella A3:L20: se una checkbox-validation è finita in celle sbagliate (es. L3),
-    //    puliamo tutte le data validations e ricostruiamo SOLO le checkbox corrette.
+    // 1) Tabella A3:L20: ripulisci validazioni e ricostruisci SOLO checkbox corrette
     try {
       sh.getRange("A3:L20").clearDataValidations();
-      // ricostruisce checkbox e lascia vuote dove nome vuoto
+
+      // Se esiste la tua funzione globale, usala (ma lei agisce su entrambe, quindi ok)
       if (typeof MINI_FIX_FORMAT_TAB_FORNITORI_ === "function") {
-        // la tua funzione agisce su entrambe: ok, ma qui siamo già nel loop.
-        // Se preferisci, commenta la riga sotto e lascia solo il rebuild manuale.
         MINI_FIX_FORMAT_TAB_FORNITORI_();
-      } else {
+      } else if (typeof _REBUILD_CHECKBOXES_FROM_NAMES_ === "function") {
         _REBUILD_CHECKBOXES_FROM_NAMES_(sh);
       }
     } catch (e) {}
+
+    // 2) ✅ N18: SOLO su Settimana Attiva, e SEMPRE per ultima (così non viene “sporcata” dopo)
+    if (name === "Settimana Attiva") {
+      try {
+        if (typeof _ensureQuickHelpN18Checkbox_ === "function") {
+          _ensureQuickHelpN18Checkbox_(sh, true);
+        } else {
+          const c = sh.getRange("N18");
+          c.clearContent();
+          c.clearDataValidations();
+          c.insertCheckboxes();
+          c.setValue(false);
+          c.setHorizontalAlignment("center").setVerticalAlignment("middle");
+        }
+      } catch (e) {}
+    }
   }
 }
 
