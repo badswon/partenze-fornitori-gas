@@ -477,61 +477,49 @@ function _cloneCheckboxValidation_(sourceCell, targetCell) {
   }
 }
 
-/****************************************************
- * N18 — AIUTO RAPIDO (ROBUSTO)
- * - N18 deve SEMPRE comportarsi come N2 (stessa checkbox rule)
- * - Se cancellano N18: la ricrea correttamente (senza "Invalid")
- * - Se spuntano N18: apre AIUTO_RAPIDO, logga, poi la rispegne
- * - Anti-loop: usa flag in DocumentProperties
- ****************************************************/
 function _handleAiutoRapidoN18_(e) {
+  if (!e || !e.range) return false;
+
+  const sh = e.range.getSheet();
+  if (!sh || sh.getName() !== "Settimana Attiva") return false;
+
+  // Intercetta QUALSIASI modifica che tocchi N18 (anche incolla)
+  const rr = e.range;
+  const r1 = rr.getRow(), c1 = rr.getColumn();
+  const r2 = r1 + rr.getNumRows() - 1;
+  const c2 = c1 + rr.getNumColumns() - 1;
+
+  // N18 = row 18, col 14
+  const touchesN18 = (18 >= r1 && 18 <= r2 && 14 >= c1 && 14 <= c2);
+  if (!touchesN18) return false;
+
+  // Solo click diretto su N18 deve aprire l’aiuto
+  const isSingleN18 =
+    rr.getNumRows() === 1 &&
+    rr.getNumColumns() === 1 &&
+    rr.getA1Notation() === "N18";
+
   try {
-    if (!e || !e.range) return false;
+    // Normalizza SUBITO (toglie invalid e fissa regola)
+    _ensureQuickHelpN18Checkbox_(sh, true);
 
-    const sh = e.range.getSheet();
-    if (!sh || sh.getName() !== "Settimana Attiva") return false;
+    if (isSingleN18) {
+      const vTrue =
+        (e.value === true) ||
+        (String(e.value ?? "").toUpperCase() === "TRUE");
 
-    // N18 preciso
-    if (e.range.getA1Notation() !== "N18") return false;
-
-    const cell = e.range;
-
-    // ✅ Normalizza "true"/TRUE/boolean
-    const vTrue = (e.value === true || e.value === "TRUE");
-
-    // Caso 1: qualcuno cancella contenuto/validation → ripristina checkbox pulita
-    const wiped = (e.value === undefined || e.value === null || e.value === "");
-    if (wiped) {
-      cell.clearContent();
-      cell.clearDataValidations();
-      cell.insertCheckboxes();
-      cell.setValue(false);
-      return true; // STOP totale
+      if (vTrue) {
+        AIUTO_RAPIDO();
+      }
     }
-
-    // Caso 2: spuntata → mostra aiuto e resetta SEMPRE
-    if (vTrue) {
-      // Mostra aiuto
-      AIUTO_RAPIDO();
-
-      // Reset robusto (evita che resti spuntata)
-      cell.setValue(false);
-      return true; // STOP totale
-    }
-
-    // Caso 3: tolta spunta → non fare niente (ma STOP per evitare altri blocchi)
-    return true;
-
   } catch (err) {
-    // fallback ultra safe: prova a ripristinare checkbox
-    try {
-      const cell = e.range;
-      cell.clearDataValidations();
-      cell.insertCheckboxes();
-      cell.setValue(false);
-    } catch (e2) {}
-    return true;
+    // non fare nulla: reset sta nel finally
+  } finally {
+    // Reset SEMPRE (così non resta mai spuntata e non resta mai invalid)
+    try { _ensureQuickHelpN18Checkbox_(sh, true); } catch (e2) {}
   }
+
+  return true; // writer unico: su N18 stop al resto
 }
 
 /**********************
@@ -626,10 +614,10 @@ function _resetSfondoFornitoriAttiva_(sh) {
 function onEdit(e) {
   if (!e || !e.range) return;
 
-  return _withSystemLock_(() => {
-
-    // ✅ N18 AIUTO RAPIDO: gestiscila SEMPRE per prima e STOP
+    // ✅ N18 AIUTO RAPIDO: gestione fuori lock globale (mai perdere il reset)
     if (_handleAiutoRapidoN18_(e)) return;
+
+    return _withSystemLock_(() => {
 
     // ✅ BLOCCO HARD header A1:M2 (Settimana Attiva / Prossima settimana)
     if (UI_ONEDIT_HEADER_A1M2_PROTETTO_(e)) return;
@@ -1198,6 +1186,25 @@ function _ensureCheckboxPulita_(cell) {
   cell.clearDataValidations();   // ⚠️ QUESTO È FONDAMENTALE
   cell.insertCheckboxes();
   cell.setValue(false);
+}
+
+function _ensureQuickHelpN18Checkbox_(sh, forceFalse) {
+  const cell = sh.getRange("N18");
+
+  // Reset totale: contenuto + validazione
+  try { cell.clearContent(); } catch (e) {}
+  try { cell.clearDataValidations(); } catch (e) {}
+
+  // Checkbox "nativa" di Sheets (la più stabile)
+  try { cell.insertCheckboxes(); } catch (e) {}
+
+  // Valore sempre booleano
+  try { cell.setValue(forceFalse === true ? false : false); } catch (e) {}
+
+  // Formattazione minima (NON tocca colori)
+  try { cell.setHorizontalAlignment("center").setVerticalAlignment("middle"); } catch (e) {}
+
+  return cell;
 }
 
 /**********************
@@ -1836,13 +1843,6 @@ function _incContatoreFuoriArea_(userKey) {
   return n;
 }
 
-/****************************************************
- * UI — CELLE N “PROTETTE” (N1,N2,N3,N4,N17,N18,N19,N20)
- * - Ripristina testo/checkbox se cancellate
- * - Non invasivo: riscrive solo se manca/è sbagliato
- * - N19/N20: valori dinamici da Properties (fallback se assenti)
- ****************************************************/
-
 function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName("Settimana Attiva");
@@ -1854,10 +1854,6 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
   // =========================
   // N1 / N2 / N5 (UI Prossima settimana)
   // =========================
-  // Nota: N5 è il link (come hai deciso), N1 testo, N2 checkbox.
-  // Se Prossima settimana esiste: N1/N2 coerenti + link in N5
-  // Se NON esiste: reset base
-
   try {
     const p = ss.getSheetByName("Prossima settimana");
     const cN1 = sh.getRange("N1");
@@ -1865,7 +1861,7 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
     const cN5 = sh.getRange("N5");
 
     // Assicura N2 checkbox sempre
-    _ensureCheckbox_(cN2);
+    try { _ensureCheckbox_(cN2); } catch (e) {}
 
     if (p) {
       // Prossima settimana esiste
@@ -1875,11 +1871,11 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
       if (cN2.getValue() !== true) cN2.setValue(true);
 
       // Link in N5
-      _uiProssima_SetLink_(sh, "Prossima settimana"); // usa N5 dentro
+      try { _uiProssima_SetLink_(sh, "Prossima settimana"); } catch (e) {}
     } else {
       // Non esiste: stato base
       if (String(cN1.getValue() ?? "").trim() === "") {
-        cN1.setValue("☑ SPUNTA PER CREARE PROSSIMA SETTIMANA");
+        cN1.setValue("☑️ SPUNTA PER CREARE PROSSIMA SETTIMANA");
       }
       // N2 deve restare checkbox ma non spuntata
       if (cN2.getValue() !== false) cN2.setValue(false);
@@ -1892,13 +1888,11 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
   // =========================
   // N3: STATO (sempre visibile)
   // =========================
-  // Se hai già il tuo sistema stato (OK/WARN/BLOCK) lo lasciamo gestire a lui.
-  // Qui facciamo solo “non vuoto”: se è vuoto, mettiamo un default OK.
+  // Se N3 è vuota, lascia decidere al banner (che imposta N3/N4/N5 coerenti)
   try {
     const cN3 = sh.getRange("N3");
     const cur = String(cN3.getValue() ?? "").trim();
     if (!cur) {
-      // ✅ NON decidere qui: fa decidere al banner
       try { _bannerArchiviazioneAggiorna_(); } catch (e) {}
     }
   } catch (e) {}
@@ -1906,18 +1900,17 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
   // =========================
   // N4: AZIONI (sempre visibile)
   // =========================
-  // Anche qui: se vuoto, mettiamo un default “Nessuna azione richiesta”
-  // Se tu hai una funzione specifica per le azioni, puoi chiamarla qui.
+  // Se N4 è vuota, fallback OK (ma senza rompere il banner se lui decide BLOCK/WARN)
   try {
     const cN4 = sh.getRange("N4");
     const cur = String(cN4.getValue() ?? "").trim();
     if (!cur) {
-      _uiSetAzioniSistema_("OK"); // funzione sotto
+      try { _uiSetAzioniSistema_("OK"); } catch (e) {}
     }
   } catch (e) {}
 
   // =========================
-  // N17 testo fisso + N18 checkbox “Aiuto rapido”
+  // N17 testo fisso
   // =========================
   try {
     const cN17 = sh.getRange("N17");
@@ -1933,20 +1926,22 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
     }
   } catch (e) {}
 
+  // =========================
+  // N18: Aiuto rapido — reset deterministico (mai spuntata, mai invalid)
+  // =========================
   try {
-    const cN18 = sh.getRange("N18");
-
-    cN18.clearDataValidations();   // 🔥 aggiungi questo
-    cN18.insertCheckboxes();
-
-    const v = cN18.getValue();
-    if (v === "" || v === null || typeof v === "undefined") {
-    cN18.setValue(false);
+    if (typeof _ensureQuickHelpN18Checkbox_ === "function") {
+      _ensureQuickHelpN18Checkbox_(sh, true);
+    } else {
+      // fallback ultra-sicuro se manca helper
+      const cN18 = sh.getRange("N18");
+      try { cN18.clearContent(); } catch (e) {}
+      try { cN18.clearDataValidations(); } catch (e) {}
+      try { cN18.insertCheckboxes(); } catch (e) {}
+      try { cN18.setValue(false); } catch (e) {}
+      try { cN18.setHorizontalAlignment("center").setVerticalAlignment("middle"); } catch (e) {}
     }
-
-    cN18.setHorizontalAlignment("center")
-    .setVerticalAlignment("middle");
-    } catch (e) {}
+  } catch (e) {}
 
   // =========================
   // N19/N20 (testi dinamici)
@@ -1963,7 +1958,9 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
     let lastStr = "—";
     if (lastTs) {
       const d = new Date(parseInt(lastTs, 10));
-      if (!isNaN(d.getTime())) lastStr = Utilities.formatDate(d, tz, "dd/MM HH:mm");
+      if (!isNaN(d.getTime())) {
+        lastStr = Utilities.formatDate(d, tz, "dd/MM HH:mm");
+      }
     }
 
     const txt19 = `Ultimo controllo: ${lastStr}`;
@@ -1971,12 +1968,12 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
 
     const cur19 = String(cN19.getValue() ?? "").trim();
     if (!cur19 || cur19.includes("Ultimo controllo: —")) {
-    cN19
-    .setValue(txt19)
-    .setFontSize(10)
-    .setHorizontalAlignment("center")
-    .setVerticalAlignment("middle")
-    .setWrap(true);
+      cN19
+        .setValue(txt19)
+        .setFontSize(10)
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle")
+        .setWrap(true);
     }
 
     if (!String(cN20.getValue() ?? "").trim()) {
@@ -2008,43 +2005,7 @@ function UI_ONEDIT_CELLE_N_PROTETTE_(e) {
     if (["N1","N2","N3","N4","N17","N18","N19","N20","N5"].includes(a1)) {
       UI_RIPRISTINA_CELLE_N_PROTETTE_();
     }
-
-    // Se spuntano N18 -> apri aiuto e resetta
-    if (a1 === "N18") {
-      const v = sh.getRange("N18").getValue();
-      if (v === true) {
-        try { AIUTO_RAPIDO(); } catch (err) {}
-        try { sh.getRange("N18").setValue(false); } catch (err2) {}
-      }
-    }
   } catch (err) {}
-}
-
-function _RIPRISTINA_N18_SE_CANCELLATA_(e) {
-  try {
-    if (!e || !e.range) return false;
-
-    const sh = e.range.getSheet();
-    if (!sh) return false;
-
-    // SOLO Settimana Attiva / SOLO N18
-    if (sh.getName() !== "Settimana Attiva") return false;
-    if (e.range.getA1Notation() !== "N18") return false;
-
-    // Se cancellata (value vuoto / null / undefined) => ricrea checkbox + false
-    if (e.value === undefined || e.value === null || e.value === "") {
-      const cell = e.range;
-      cell.clearContent();
-      cell.clearDataValidations();
-      cell.insertCheckboxes();
-      cell.setValue(false);
-      cell.setHorizontalAlignment("center").setVerticalAlignment("middle");
-    }
-
-    return true; // STOP: su N18 non far proseguire altre logiche
-  } catch (err) {
-    return true;
-  }
 }
 
 /****************************************************
@@ -4228,14 +4189,6 @@ function _fixStileNomeFornitore_(cell, rawValue) {
   } catch (e) {}
 }
 
-/****************************************************
- * HARD FIX — INVALID CHECKBOX (N18 + tabella A3:L20)
- * - Elimina “Invalid: ... violate its validation rule”
- * - Ripulisce CONTENUTO + VALIDAZIONE e ricrea checkbox sane
- * - Agisce su:
- *   • Settimana Attiva
- *   • Prossima settimana (se esiste)
- ****************************************************/
 function HARD_FIX_INVALID_CHECKBOXES_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const TARGETS = ["Settimana Attiva", "Prossima settimana"];
@@ -4251,15 +4204,9 @@ function HARD_FIX_INVALID_CHECKBOXES_() {
     const sh = ss.getSheetByName(sheetName);
     if (!sh) continue;
 
-    // -------- N18 (solo in Settimana Attiva)
+    // -------- N18 (solo in Settimana Attiva) => usa helper unico
     if (sheetName === "Settimana Attiva") {
-      const n18 = sh.getRange("N18");
-      // pulizia totale e ricostruzione checkbox
-      n18.clearContent();
-      n18.clearDataValidations();
-      n18.insertCheckboxes();
-      n18.setValue(false);
-      n18.setHorizontalAlignment("center").setVerticalAlignment("middle");
+      try { _ensureQuickHelpN18Checkbox_(sh, true); } catch (e) {}
     }
 
     // -------- Tabella fornitori: ricostruisci checkbox coerenti e “pulite”
@@ -4277,28 +4224,25 @@ function HARD_FIX_INVALID_CHECKBOXES_() {
 
         // Se non c’è nome => NO checkbox
         if (!nomeTxt) {
-          cellCk.clearContent();
-          cellCk.clearDataValidations();
+          try { cellCk.clearContent(); } catch (e) {}
+          try { cellCk.clearDataValidations(); } catch (e) {}
           continue;
         }
 
         // C’è un nome => checkbox DEVE esistere
-        // ✅ QUI la differenza che risolve “Invalid”:
-        // prima ripulisci contenuto+validazione, poi ricrei checkbox e setti boolean
-        cellCk.clearContent();
-        cellCk.clearDataValidations();
-        cellCk.insertCheckboxes();
+        try { cellCk.clearContent(); } catch (e) {}
+        try { cellCk.clearDataValidations(); } catch (e) {}
+        try { cellCk.insertCheckboxes(); } catch (e) {}
 
         // "- ..." => sempre false
         if (typeof _isNoPartenza_ === "function" && _isNoPartenza_(rawNome)) {
-          cellCk.setValue(false);
+          try { cellCk.setValue(false); } catch (e) {}
         } else {
-          // se era true boolean lo mantieni, altrimenti false
           const v = ckVals[r][0];
-          cellCk.setValue(v === true);
+          try { cellCk.setValue(v === true); } catch (e) {}
         }
 
-        cellCk.setHorizontalAlignment("center").setVerticalAlignment("middle");
+        try { cellCk.setHorizontalAlignment("center").setVerticalAlignment("middle"); } catch (e) {}
       }
     }
   }
