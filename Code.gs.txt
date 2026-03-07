@@ -67,55 +67,6 @@ function FIX_CHECKBOX_TEMPLATE() {
   }
 }
 
-/****************************************************
- * HEADER OGGI – testo stabile (NO formattazioni)
- * Celle giorni: A2, C2, E2, G2, I2, K2 (Lun..Sab)
- * - oggi:  ▶ OGGI – MARTEDÌ 27/01 ◀
- * - altri: MARTEDÌ 27/01
- ****************************************************/
-function AGGIORNA_HEADER_OGGI() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName("Settimana Attiva");
-  if (!sh) return;
-
-  const base = sh.getRange("M2").getValue(); // lunedì della settimana
-  if (!(base instanceof Date)) return;
-
-  const oggi = new Date();
-  oggi.setHours(0, 0, 0, 0);
-
-  // ✅ Celle intestazione giorni (Lun..Sab) come mi hai detto tu
-  const headerCells = ["A2", "C2", "E2", "G2", "I2", "K2"];
-  const dayNames = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ", "VENERDÌ", "SABATO"];
-
-  const base0 = new Date(base);
-  base0.setHours(0, 0, 0, 0);
-
-  const diffDays = Math.floor((oggi.getTime() - base0.getTime()) / 86400000);
-  const todayIndex = (diffDays >= 0 && diffDays <= 5) ? diffDays : -1;
-
-  const tz = Session.getScriptTimeZone();
-
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(base0);
-    d.setDate(d.getDate() + i);
-
-    const ddmm = Utilities.formatDate(d, tz, "dd/MM");
-    const normal = `${dayNames[i]} ${ddmm}`;
-
-    const txt = (i === todayIndex)
-      ? `▶ OGGI – ${dayNames[i]} ${ddmm} ◀`
-      : normal;
-
-    sh.getRange(headerCells[i]).setValue(txt);
-  }
-}
-
-/** Versione "safe": non rompe nulla anche se chiamata spesso */
-function AGGIORNA_HEADER_OGGI_SAFE_() {
-  try { AGGIORNA_HEADER_OGGI(); } catch (e) {}
-}
-
 /**************
  * UTILITÀ
  **************/
