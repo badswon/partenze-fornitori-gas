@@ -169,6 +169,9 @@ function onOpen(e) {
   try { _bannerArchiviazioneAggiorna_(); } catch (e) {}
   // 1) Menu SEMPRE per primi
   try { BUILD_MENUS_(); } catch (err) {}
+  
+  try { AGGIORNA_HEADER_OGGI_SAFE_(); } catch (e) {}
+  try { RIPRISTINA_EVIDENZIA_OGGI(); } catch (e) {}
 
   // 2) Pianifica healthcheck differito (non blocca i menu)
   try { _SCHEDULE_HEALTHCHECK_AFTER_OPEN_(); } catch (err) {}
