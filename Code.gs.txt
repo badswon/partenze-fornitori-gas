@@ -1770,17 +1770,6 @@ function _isSlotAbitualeDaTemplate_(row, colNome) {
   }
 }
 
-function _getUserKeyForCounters_() {
-  let email = "";
-  try { email = Session.getActiveUser().getEmail() || ""; } catch (e) {}
-  email = String(email || "").trim();
-  if (!email) {
-    try { email = Session.getEffectiveUser().getEmail() || ""; } catch (e2) {}
-    email = String(email || "").trim();
-  }
-  return email || (_getUserLabelFallback_ ? (_getUserLabelFallback_() || "") : "") || "utente_anonimo";
-}
-
 function _todayKey_() {
   const tz = Session.getScriptTimeZone();
   return Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
@@ -1943,20 +1932,27 @@ function UI_RIPRISTINA_CELLE_N_PROTETTE_() {
  ****************************************************/
 function UI_ONEDIT_CELLE_N_PROTETTE_(e) {
   try {
-    if (e && e.range && e.range.getSheet().getName() === "Settimana Attiva" && e.range.getA1Notation() === "N18") {
-    return false; // N18 è gestita solo da _handleAiutoRapidoN18_
-    }
-    if (!e || !e.range) return;
+    if (!e || !e.range) return false;
+
     const sh = e.range.getSheet();
-    if (!sh || sh.getName() !== "Settimana Attiva") return;
+    if (!sh || sh.getName() !== "Settimana Attiva") return false;
 
     const a1 = e.range.getA1Notation();
 
-    // Se hanno toccato una delle celle N protette -> ripristina subito
-    if (["N1","N2","N3","N4","N17","N18","N19","N20","N5"].includes(a1)) {
+    // ✅ N2 NON è protetta: è un comando utente valido
+    // ✅ N18 NON è protetta qui: è gestita solo da _handleAiutoRapidoN18_
+    if (a1 === "N2" || a1 === "N18") return false;
+
+    // Se hanno toccato una delle vere celle N protette -> ripristina subito
+    if (["N1", "N3", "N4", "N5", "N17", "N19", "N20"].includes(a1)) {
       UI_RIPRISTINA_CELLE_N_PROTETTE_();
+      return true;
     }
-  } catch (err) {}
+
+    return false;
+  } catch (err) {
+    return false;
+  }
 }
 
 /****************************************************
@@ -3374,58 +3370,6 @@ function AUTO_BACKUP_ORARIO() {
 }
 
 /****************************************************
- * RIPRISTINO: ricostruisce anche le checkbox coerenti
- ****************************************************/
-function _bkRestorePayloadToSheet_(targetSh, payload) {
-  if (!payload || payload.a1 !== "A3:L20" || !payload.values) return;
-
-  // ripristina valori
-  targetSh.getRange("A3:L20").setValues(payload.values);
-
-  // riallinea checkbox coerenti con i nomi (evita checkbox “fantasma”)
-  _bkRebuildCheckboxes_(targetSh);
-}
-
-function _bkRebuildCheckboxes_(sh) {
-  const COL_NOMI = [1, 3, 5, 7, 9, 11];   // A,C,E,G,I,K
-  const COL_CK   = [2, 4, 6, 8, 10, 12];  // B,D,F,H,J,L
-  const numRows = 18; // 3..20
-
-  for (let i = 0; i < COL_NOMI.length; i++) {
-    const colNome = COL_NOMI[i];
-    const colCk = COL_CK[i];
-
-    const nomi = sh.getRange(3, colNome, numRows, 1).getValues();
-    const ckVals = sh.getRange(3, colCk, numRows, 1).getValues();
-
-    for (let r = 0; r < numRows; r++) {
-      const rawNome = nomi[r][0];
-      const nomeTxt = String(rawNome ?? "").replace(/\u00A0/g, " ").trim();
-      const cellCk = sh.getRange(3 + r, colCk);
-
-      if (!nomeTxt) {
-        // niente fornitore => niente checkbox
-        cellCk.clearContent();
-        cellCk.clearDataValidations();
-        continue;
-      }
-
-      // c’è un nome => checkbox deve esistere
-      cellCk.clearDataValidations();
-      cellCk.insertCheckboxes();
-
-      // "- ..." => sempre false
-      if (typeof _isNoPartenza_ === "function" && _isNoPartenza_(rawNome)) {
-        cellCk.setValue(false);
-      } else {
-        const v = ckVals[r][0];
-        cellCk.setValue(v === true);
-      }
-    }
-  }
-}
-
-/****************************************************
  * MENU: Ripristino ultimo backup per foglio ATTIVO
  ****************************************************/
 function RIPRISTINO_EMERGENZA_BACKUP_ORARIO_() {
@@ -3617,17 +3561,14 @@ function _bkRebuildCheckboxes_(sh) {
       const cellCk = sh.getRange(3 + r, colCk);
 
       if (!nomeTxt) {
-        // nessun fornitore => niente checkbox
         cellCk.clearContent();
         cellCk.clearDataValidations();
         continue;
       }
 
-      // nome presente => checkbox deve esistere
       cellCk.clearDataValidations();
       cellCk.insertCheckboxes();
 
-      // "- ..." => sempre false
       if (typeof _isNoPartenza_ === "function" ? _isNoPartenza_(rawNome) : _fallbackIsNoPartenza_(rawNome)) {
         cellCk.setValue(false);
       } else {
