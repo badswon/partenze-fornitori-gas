@@ -22,6 +22,11 @@ function BONIFICA_EVIDENZA_OGGI() {
   try { ss.toast("Bonifica fatta ✅", "Tecnico", 4); } catch (e) {}
 }
 
+function TECNICO_AGGIORNA_HEADER_OGGI_ORA() {
+  try { AGGIORNA_HEADER_OGGI_SAFE_(); } catch (e) {}
+  try { RIPRISTINA_EVIDENZIA_OGGI(); } catch (e) {}
+}
+
 /**
  * Backup manuale immediato
  */
@@ -347,6 +352,7 @@ function BUILD_MENUS_() {
     .addItem("🧹 Reset stato email non partiti", "TECNICO_EmailNonPartiti_ResetDiag")
     .addSeparator()
     .addItem("🔧 Ripara struttura fogli", "garantisciStruttura")
+    .addItem("🗓️ Aggiorna header OGGI", "TECNICO_AGGIORNA_HEADER_OGGI_ORA")
     .addItem("🧽 Bonifica evidenza OGGI", "BONIFICA_EVIDENZA_OGGI")
     .addItem("☑️ Fix checkbox Template", "FIX_CHECKBOX_TEMPLATE")
     .addItem("🔒 Proteggi TemplateSettimana", "TECNICO_ProteggiTemplateSettimana")
