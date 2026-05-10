@@ -23,7 +23,15 @@ function BONIFICA_EVIDENZA_OGGI() {
 }
 
 function TECNICO_AGGIORNA_HEADER_OGGI_ORA() {
-  try { AGGIORNA_HEADER_OGGI_SAFE_(); } catch (e) {}
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const attiva = ss.getSheetByName("Settimana Attiva");
+    const prossima = ss.getSheetByName("Prossima settimana");
+
+    if (attiva) _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(attiva);
+    if (prossima) _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(prossima);
+  } catch (e) {}
+
   try { RIPRISTINA_EVIDENZIA_OGGI(); } catch (e) {}
 }
 
@@ -141,6 +149,25 @@ function TECNICO_EmailNonPartiti_ResetDiag() {
   props.deleteProperty("EMAIL_NONPARTITI_LAST_DETAIL");
   props.deleteProperty("EMAIL_NONPARTITI_ERROR_COUNT");
   SpreadsheetApp.getUi().alert("Diagnostica email non partiti resettata.");
+}
+
+function TEST_APPLICA_CHIUSURE_ORA() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const attiva = ss.getSheetByName("Settimana Attiva");
+  const prossima = ss.getSheetByName("Prossima settimana");
+
+  if (attiva) {
+    try { _AGGIORNA_CHIUSURE_SU_FOGLIO_SETTIMANA_(attiva); } catch (e) {}
+  }
+
+  if (prossima) {
+    try { _AGGIORNA_CHIUSURE_SU_FOGLIO_SETTIMANA_(prossima); } catch (e) {}
+  }
+
+  try { HEALTHCHECK_VISIVO(); } catch (e) {}
+
+  SpreadsheetApp.getActive().toast("Chiusure aggiornate ✅", "Test", 4);
 }
 
 /****************************************************
@@ -276,6 +303,24 @@ function MANUT_Storico_ScriviIntestazione_() {
   const storico = getStoricoSettimane_();
   scriviIntestazioneArchiviazione_(storico, dataBase);
   SpreadsheetApp.getUi().alert("Intestazione storico scritta.");
+}
+
+function TEST_APPLICA_CHIUSURE_ORA() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const attiva = ss.getSheetByName("Settimana Attiva");
+  const prossima = ss.getSheetByName("Prossima settimana");
+
+  if (attiva) {
+    try { _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(attiva); } catch (e) {}
+  }
+
+  if (prossima) {
+    try { _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(prossima); } catch (e) {}
+  }
+
+  try { HEALTHCHECK_VISIVO(); } catch (e) {}
+
+  SpreadsheetApp.getActive().toast("Chiusure aggiornate ✅", "Test", 4);
 }
 
 /****************************************************
