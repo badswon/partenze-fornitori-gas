@@ -167,13 +167,24 @@ function _hcUpdateCounters_(hadInterventions) {
 
 function onOpen(e) {
   try { _bannerArchiviazioneAggiorna_(); } catch (e) {}
-  // 1) Menu SEMPRE per primi
+
+  // Menu per primi
   try { BUILD_MENUS_(); } catch (err) {}
-  
-  try { AGGIORNA_HEADER_OGGI_SAFE_(); } catch (e) {}
+
+  // Header + chiusure
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const attiva = ss.getSheetByName("Settimana Attiva");
+    const prossima = ss.getSheetByName("Prossima settimana");
+
+    if (attiva) _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(attiva);
+    if (prossima) _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(prossima);
+  } catch (e) {}
+
+  // Evidenzia oggi
   try { RIPRISTINA_EVIDENZIA_OGGI(); } catch (e) {}
 
-  // 2) Pianifica healthcheck differito (non blocca i menu)
+  // Healthcheck differito
   try { _SCHEDULE_HEALTHCHECK_AFTER_OPEN_(); } catch (err) {}
 }
 
