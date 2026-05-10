@@ -211,152 +211,142 @@ function _rangeInterseca_(r, a1) {
  ****************************************************/
 function HEALTHCHECK_VISIVO() {
   return _withSystemLock_(() => {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const attiva = ss.getSheetByName("Settimana Attiva");
-  if (!attiva) return;
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const attiva = ss.getSheetByName("Settimana Attiva");
+    if (!attiva) return;
 
-  let hadInterventions = false;
+    let hadInterventions = false;
 
-  // ---------- A) SISTEMA UI N1/N2/N3 (stato prossima) ----------
-  try {
-    const p = ss.getSheetByName("Prossima settimana");
-    if (p) {
-      // deve risultare "esiste" e checkbox spuntata
-      try { attiva.getRange("N1").setValue("✅ Prossima settimana esiste"); } catch (e) {}
-      try { attiva.getRange("N2").setValue(true); } catch (e) {}
-      try { _uiProssima_SetLink_(attiva, "Prossima settimana"); } catch (e) {}
-    } else {
-      try { _uiProssima_Reset_(attiva); } catch (e) {}
-    }
-  } catch (e) {}
-
-  // ---------- B) CONTROLLA/ RIPRISTINA LE 2 REGOLE CF VITALI ----------
-  const RANGE_EVIDENZIA = "A2:L20"; // include riga 2
-  const FORMULA_OGGI = "=INT($M$2)+INT((COLUMN()-1)/2)=TODAY()";
-
-  // Regola CHIUSO: si basa sul testo in B2/D2/.../L2 (🚫 CHIUSO 🚫)
-  // (in Italia il separatore è ; )
-  const FORMULA_CHIUSO = '=INDEX($B$2:$L$2;1; 2*INT((COLUMN()-1)/2)+1)="🚫 CHIUSO 🚫"';
-
-  // Colori
-  const BG_OGGI = "#00ffff";     // cyan
-  const BG_CHIUSO = "#e0e0e0";   // grigio chiaro
-  const FONT_CHIUSO = "#000000"; // nero
-
-  let rules = [];
-  try { rules = attiva.getConditionalFormatRules() || []; } catch (e) { rules = []; }
-
-  const hasRule = (formulaNeedle, rangeA1Needle) => {
+    // ---------- A) SISTEMA UI N1/N2/N3 ----------
     try {
-      for (const rule of rules) {
-        const bc = rule.getBooleanCondition && rule.getBooleanCondition();
-        const crit = bc ? bc.getCriteriaValues && bc.getCriteriaValues() : null;
-        const f = crit && crit[0] ? String(crit[0]) : "";
-        if (f !== String(formulaNeedle)) continue;
-
-        const rs = rule.getRanges ? rule.getRanges() : [];
-        for (const rr of rs) {
-          if (rr.getA1Notation && rr.getA1Notation() === rangeA1Needle) return true;
-        }
+      const p = ss.getSheetByName("Prossima settimana");
+      if (p) {
+        try { attiva.getRange("N1").setValue("✅ Prossima settimana esiste"); } catch (e) {}
+        try { attiva.getRange("N2").setValue(true); } catch (e) {}
+        try { _uiProssima_SetLink_(attiva, "Prossima settimana"); } catch (e) {}
+      } else {
+        try { _uiProssima_Reset_(attiva); } catch (e) {}
       }
     } catch (e) {}
-    return false;
-  };
 
-  const needOggi = !hasRule(FORMULA_OGGI, RANGE_EVIDENZIA);
-  const needChiuso = !hasRule(FORMULA_CHIUSO, RANGE_EVIDENZIA);
+    // ✅ Aggiorna SEMPRE header + chiusure
+    try { _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(attiva); } catch (e) {}
+    try {
+      const p = ss.getSheetByName("Prossima settimana");
+      if (p) _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(p);
+    } catch (e) {}
 
-  // Se mancano, le ricostruiamo mantenendo le altre regole
-  if (needOggi || needChiuso) {
-    const newRules = rules.slice();
+    // ---------- B) REGOLE CF VITALI ----------
+    const RANGE_EVIDENZIA = "A2:L20";
+    const FORMULA_OGGI = "=INT($M$2)+INT((COLUMN()-1)/2)=TODAY()";
+    const FORMULA_CHIUSO = '=REGEXMATCH(INDEX($A$2:$K$2;1;2*INT((COLUMN()-1)/2)+1);"🚫 CHIUSO 🚫")';
 
-    if (needOggi) {
-      newRules.push(
-        SpreadsheetApp.newConditionalFormatRule()
-          .whenFormulaSatisfied(FORMULA_OGGI)
-          .setRanges([attiva.getRange(RANGE_EVIDENZIA)])
-          .setBackground(BG_OGGI)
-          .build()
-      );
-    }
+    const BG_OGGI = "#00ffff";
+    const BG_CHIUSO = "#e0e0e0";
+    const FONT_CHIUSO = "#000000";
 
-    if (needChiuso) {
-      newRules.push(
-        SpreadsheetApp.newConditionalFormatRule()
-          .whenFormulaSatisfied(FORMULA_CHIUSO)
-          .setRanges([attiva.getRange(RANGE_EVIDENZIA)])
-          .setBackground(BG_CHIUSO)
-          .setFontColor(FONT_CHIUSO)
-          .setBold(true)
-          .build()
-      );
-    }
+    let rules = [];
+    try { rules = attiva.getConditionalFormatRules() || []; } catch (e) { rules = []; }
 
-    hadInterventions = true;
-    try { attiva.setConditionalFormatRules(newRules); } catch (e) {}
-  }
-
-  // ---------- C) RIPARA "RIGA 3 SCURA" (banding sporco) ----------
-  try {
-    const row3 = attiva.getRange("A3:L3").getBackgrounds()[0];
-    const allSame = row3.every(x => x === row3[0]);
-    const c0 = String(row3[0] || "").toLowerCase();
-
-    const suspicious =
-      allSame &&
-      c0 &&
-      (c0 !== "#ffffff" && c0 !== "#f3f3f3" && c0 !== "white");
-
-    if (suspicious) {
-      hadInterventions = true;
-      const rng = attiva.getRange("A3:L20");
-
-      // rimuovi banding che toccano A3:L20
+    const hasRule = (formulaNeedle, rangeA1Needle) => {
       try {
-        attiva.getBandings().forEach(b => {
-          try {
-            const br = b.getRange();
-            const overlap =
-              !(br.getLastRow() < rng.getRow() ||
-                br.getRow() > rng.getLastRow() ||
-                br.getLastColumn() < rng.getColumn() ||
-                br.getColumn() > rng.getLastColumn());
-            if (overlap) b.remove();
-          } catch (e) {}
-        });
+        for (const rule of rules) {
+          const bc = rule.getBooleanCondition && rule.getBooleanCondition();
+          const crit = bc ? bc.getCriteriaValues && bc.getCriteriaValues() : null;
+          const f = crit && crit[0] ? String(crit[0]) : "";
+          if (f !== String(formulaNeedle)) continue;
+
+          const rs = rule.getRanges ? rule.getRanges() : [];
+          for (const rr of rs) {
+            if (rr.getA1Notation && rr.getA1Notation() === rangeA1Needle) return true;
+          }
+        }
       } catch (e) {}
+      return false;
+    };
 
-      // ricrea banding pulito (senza header/footer)
-      const b = rng.applyRowBanding();
-      try { b.setHeaderRowColor(null); } catch (e) {}
-      try { b.setFooterRowColor(null); } catch (e) {}
-      try { b.setFirstRowColor("#ffffff"); } catch (e) {}
-      try { b.setSecondRowColor("#f3f3f3"); } catch (e) {}
+    const needOggi = !hasRule(FORMULA_OGGI, RANGE_EVIDENZIA);
+    const needChiuso = !hasRule(FORMULA_CHIUSO, RANGE_EVIDENZIA);
+
+    if (needOggi || needChiuso) {
+      const newRules = rules.slice();
+
+      if (needOggi) {
+        newRules.push(
+          SpreadsheetApp.newConditionalFormatRule()
+            .whenFormulaSatisfied(FORMULA_OGGI)
+            .setRanges([attiva.getRange(RANGE_EVIDENZIA)])
+            .setBackground(BG_OGGI)
+            .build()
+        );
+      }
+
+      if (needChiuso) {
+        newRules.push(
+          SpreadsheetApp.newConditionalFormatRule()
+            .whenFormulaSatisfied(FORMULA_CHIUSO)
+            .setRanges([attiva.getRange(RANGE_EVIDENZIA)])
+            .setBackground(BG_CHIUSO)
+            .setFontColor(FONT_CHIUSO)
+            .setBold(true)
+            .build()
+        );
+      }
+
+      hadInterventions = true;
+      try { attiva.setConditionalFormatRules(newRules); } catch (e) {}
     }
-  } catch (e) {}
 
-  // ✅ OPZIONE 1: mini-fix formattazione tabella fornitori/checkbox
-  // (viene eseguito ogni volta che fai Healthcheck, manuale o automatico)
-  try { MINI_FIX_FORMAT_TAB_FORNITORI_(); } catch (e) {}
+    // ---------- C) RIPARA BANDING ----------
+    try {
+      const row3 = attiva.getRange("A3:L3").getBackgrounds()[0];
+      const allSame = row3.every(x => x === row3[0]);
+      const c0 = String(row3[0] || "").toLowerCase();
 
-  // Salva “adesso” come ultimo controllo (persistente) e scrivilo in N19
-  // Aggiorna SEMPRE timestamp + contatori (anche se interventi=0)
-  try { UI_HC_AGGIORNA_CONTATORI_(hadInterventions); } catch (e) {}
+      const suspicious =
+        allSame &&
+        c0 &&
+        (c0 !== "#ffffff" && c0 !== "#f3f3f3" && c0 !== "white");
 
-  // ---------- D) Feedback minimo (solo manuale) ----------
-  try {
-    SpreadsheetApp.getActive().toast("Healthcheck visivo completato ✅", "Gestione Settimana", 4);
-  } catch (e) {}
+      if (suspicious) {
+        hadInterventions = true;
+        const rng = attiva.getRange("A3:L20");
 
-  // ✅ snapshot header “buono” (serve per ripristino HARD A1:M2)
-  try { HDR_SNAPSHOT_SALVA_(attiva); } catch (e) {}
+        try {
+          attiva.getBandings().forEach(b => {
+            try {
+              const br = b.getRange();
+              const overlap =
+                !(br.getLastRow() < rng.getRow() ||
+                  br.getRow() > rng.getLastRow() ||
+                  br.getLastColumn() < rng.getColumn() ||
+                  br.getColumn() > rng.getLastColumn());
+              if (overlap) b.remove();
+            } catch (e) {}
+          });
+        } catch (e) {}
 
-  // ✅ snapshot anche di "Prossima settimana" se esiste
-  try {
-    const p = ss.getSheetByName("Prossima settimana");
-    if (p) HDR_SNAPSHOT_SALVA_(p);
-  } catch (e) {}
-  try { _bannerArchiviazioneAggiorna_(); } catch (e) {}
+        const b = rng.applyRowBanding();
+        try { b.setHeaderRowColor(null); } catch (e) {}
+        try { b.setFooterRowColor(null); } catch (e) {}
+        try { b.setFirstRowColor("#ffffff"); } catch (e) {}
+        try { b.setSecondRowColor("#f3f3f3"); } catch (e) {}
+      }
+    } catch (e) {}
+
+    try { MINI_FIX_FORMAT_TAB_FORNITORI_(); } catch (e) {}
+    try { UI_HC_AGGIORNA_CONTATORI_(hadInterventions); } catch (e) {}
+
+    try {
+      SpreadsheetApp.getActive().toast("Healthcheck visivo completato ✅", "Gestione Settimana", 4);
+    } catch (e) {}
+
+    try { HDR_SNAPSHOT_SALVA_(attiva); } catch (e) {}
+    try {
+      const p = ss.getSheetByName("Prossima settimana");
+      if (p) HDR_SNAPSHOT_SALVA_(p);
+    } catch (e) {}
+    try { _bannerArchiviazioneAggiorna_(); } catch (e) {}
   });
 }
 
@@ -535,14 +525,6 @@ function _giornoDaOffset_(off) {
   return (off >= 0 && off <= 5) ? giorni[off] : "";
 }
 
-// Wrapper sicuro: non deve MAI bloccare l'edit
-function _logSafe_(azione, fornitore, sheetName, giornoLabel) {
-  try {
-    const extra = `${sheetName}${giornoLabel ? " | " + giornoLabel : ""}`;
-    logOperativo_(azione, fornitore || "", extra);
-  } catch (e) {}
-}
-
 function _resetSfondoFornitoriAttiva_(sh) {
   // A3:L20 = 18 righe (3..20), 12 colonne (A..L)
   const startRow = 3;
@@ -565,10 +547,10 @@ function _resetSfondoFornitoriAttiva_(sh) {
 function onEdit(e) {
   if (!e || !e.range) return;
 
-    // ✅ N18 AIUTO RAPIDO: gestione fuori lock globale (mai perdere il reset)
-    if (_handleAiutoRapidoN18_(e)) return;
+  // ✅ N18 AIUTO RAPIDO: gestione fuori lock globale (mai perdere il reset)
+  if (_handleAiutoRapidoN18_(e)) return;
 
-    return _withSystemLock_(() => {
+  return _withSystemLock_(() => {
 
     // ✅ BLOCCO HARD header A1:M2 (Settimana Attiva / Prossima settimana)
     if (UI_ONEDIT_HEADER_A1M2_PROTETTO_(e)) return;
@@ -583,7 +565,7 @@ function onEdit(e) {
 
     _GUARDIAN_STATO_UI_(e);
 
-    // ✅ Ripristino celle N protette (N1,N2,N3,N4,N17,N18,N19,N20)
+    // ✅ Ripristino celle N protette
     if (UI_ONEDIT_CELLE_N_PROTETTE_(e)) return;
 
     // =========================
@@ -608,23 +590,54 @@ function onEdit(e) {
         );
 
         SNAPSHOT_FORNITORI_RESTORE_(nome);
-        return; // STOP totale
+        return;
       }
     }
 
     try {
-      // 🔒 TEMPLATE: le checkbox NON devono mai essere spuntabili
+      // 🔒 TEMPLATE: crea checkbox accanto al nome ma non deve mai restare spuntata
       if (nome === "TemplateSettimana") {
-        const isCheckboxCol = [2, 4, 6, 8, 10, 12].includes(c);
         const inRigheFornitori = (r >= 3 && r <= 20);
+        const nomeCols = [1, 3, 5, 7, 9, 11];   // A,C,E,G,I,K
+        const checkCols = [2, 4, 6, 8, 10, 12]; // B,D,F,H,J,L
+        const mapTpl = { 1: 2, 3: 4, 5: 6, 7: 8, 9: 10, 11: 12 };
 
-        if (isCheckboxCol && inRigheFornitori) {
-          e.range.clearContent();
-          e.range.insertCheckboxes();
-          e.range.setValue(false);
-          _setBgCheckboxCorretto_(nome, sh, r, c);
+        if (!inRigheFornitori) return;
+
+        // 1) Se scrivono un fornitore nel template, crea/rimuovi la checkbox accanto
+        if (nomeCols.includes(c)) {
+          const raw = (typeof e.value !== "undefined") ? e.value : e.range.getValue();
+          const txt = String(raw ?? "").replace(/\u00A0/g, " ").trim();
+          const cbCell = sh.getRange(r, mapTpl[c]);
+
+          if (txt === "") {
+            try { cbCell.clearContent(); } catch (e2) {}
+            try { cbCell.clearDataValidations(); } catch (e2) {}
+            try { _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn()); } catch (e2) {}
+          } else {
+            try { cbCell.clearContent(); } catch (e2) {}
+            try { cbCell.clearDataValidations(); } catch (e2) {}
+            try { cbCell.insertCheckboxes(); } catch (e2) {}
+            try { cbCell.setValue(false); } catch (e2) {}
+            try { cbCell.setHorizontalAlignment("center").setVerticalAlignment("middle"); } catch (e2) {}
+            try { _setBgCheckboxCorretto_(nome, sh, r, cbCell.getColumn()); } catch (e2) {}
+          }
+
           return;
         }
+
+        // 2) Se provano a cliccare la checkbox nel template, rimettila sempre FALSE
+        if (checkCols.includes(c)) {
+          try { e.range.clearContent(); } catch (e2) {}
+          try { e.range.clearDataValidations(); } catch (e2) {}
+          try { e.range.insertCheckboxes(); } catch (e2) {}
+          try { e.range.setValue(false); } catch (e2) {}
+          try { e.range.setHorizontalAlignment("center").setVerticalAlignment("middle"); } catch (e2) {}
+          try { _setBgCheckboxCorretto_(nome, sh, r, c); } catch (e2) {}
+          return;
+        }
+
+        return;
       }
 
       if (!["Settimana Attiva", "Prossima settimana"].includes(nome)) return;
@@ -635,6 +648,13 @@ function onEdit(e) {
       } catch (err) {}
 
       try { garantisciStruttura(); } catch (e2) {}
+
+      // ✅ aggiorna SEMPRE header/chiusure prima di ogni controllo
+      try { _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(sh); } catch (e2) {}
+      try { RIPRISTINA_EVIDENZIA_OGGI(); } catch (e2) {}
+
+      // ✅ blocco giorni chiusi: deve scattare PRIMA di tutta la logica operativa
+      if (_BLOCCA_EDIT_GIORNO_CHIUSO_(e, sh, nome, r, c, ui)) return;
 
       // Se sei sopra la tabella fornitori, esci
       if (r < 3) return;
@@ -647,8 +667,7 @@ function onEdit(e) {
       const COLONNE_CHECKBOX = [2, 4, 6, 8, 10, 12];
       const COLONNE_INTERESSATE = [...COLONNE_NOMI, ...COLONNE_CHECKBOX];
 
-      // Range edit (anche multiplo: incolla / drag)
-      const rrEdit = e.range;                 // ✅ rinominato (prima era rr)
+      const rrEdit = e.range;
       const r1 = rrEdit.getRow();
       const c1 = rrEdit.getColumn();
       const nr = rrEdit.getNumRows();
@@ -656,7 +675,6 @@ function onEdit(e) {
       const r2 = r1 + nr - 1;
       const c2 = c1 + nc - 1;
 
-      // OK se il range resta ENTRO la tabella (r2 <= RIGA_MAX)
       if (r2 > RIGA_MAX) {
         const touchedManagedCols = COLONNE_INTERESSATE.some(col => col >= c1 && col <= c2);
 
@@ -691,7 +709,6 @@ function onEdit(e) {
             );
           }
 
-          // ✅ PULIZIA AUTOMATICA: solo la parte FUORI AREA del range
           const cleanStartRow = Math.max(RIGA_MAX + 1, r1);
           const cleanNumRows = (r2 - cleanStartRow + 1);
 
@@ -699,12 +716,12 @@ function onEdit(e) {
             for (const col of COLONNE_INTERESSATE) {
               if (col < c1 || col > c2) continue;
               const rng = rrEdit.getSheet().getRange(cleanStartRow, col, cleanNumRows, 1);
-              try { rng.clearContent(); } catch (e) {}
-              try { rng.clearDataValidations(); } catch (e) {}
+              try { rng.clearContent(); } catch (e2) {}
+              try { rng.clearDataValidations(); } catch (e2) {}
             }
           }
 
-          return; // 🛑 STOP totale
+          return;
         }
       }
 
@@ -715,7 +732,6 @@ function onEdit(e) {
       const nameColToOffset = { 1: 0, 3: 1, 5: 2, 7: 3, 9: 4, 11: 5 };
       const checkColToOffset = { 2: 0, 4: 1, 6: 2, 8: 3, 10: 4, 12: 5 };
 
-      // data base settimana
       const dataBase = sh.getRange("M2").getValue();
       const oggi = new Date();
       oggi.setHours(0, 0, 0, 0);
@@ -735,7 +751,7 @@ function onEdit(e) {
         let keepPartitoAfterRename = false;
         const cbCell = sh.getRange(r, map[c]);
 
-        const cbVal = cbCell.getValue(); // true/false/""
+        const cbVal = cbCell.getValue();
         const oldNome = (typeof e.oldValue !== "undefined") ? e.oldValue : "";
         const newNome = (typeof e.value !== "undefined") ? e.value : "";
 
@@ -803,8 +819,8 @@ function onEdit(e) {
             const resp = ui.alert(
               "Attenzione (fornitore abituale)",
               "Stai modificando un fornitore abituale (presente nel Template).\n\n" +
-              `Consiglio: se oggi NON deve partire, usa "- ${oldBase}".\n\n` +
-              "Vuoi davvero modificarlo?",
+                `Consiglio: se oggi NON deve partire, usa "- ${oldBase}".\n\n` +
+                "Vuoi davvero modificarlo?",
               ui.ButtonSet.YES_NO
             );
 
@@ -815,7 +831,6 @@ function onEdit(e) {
           }
         }
 
-        // LOG
         try {
           const giornoLabelLog = (c in nameColToOffset) ? _giornoDaOffset_(nameColToOffset[c]) : "";
 
@@ -834,8 +849,8 @@ function onEdit(e) {
           const resp = ui.alert(
             "Attenzione",
             "Questo fornitore risulta già segnato come \"Partito\".\n\n" +
-            "Se lo cancelli, agli altri sembrerà NON partito.\n\n" +
-            "Vuoi davvero cancellarlo?",
+              "Se lo cancelli, agli altri sembrerà NON partito.\n\n" +
+              "Vuoi davvero cancellarlo?",
             ui.ButtonSet.YES_NO
           );
 
@@ -906,9 +921,6 @@ function onEdit(e) {
 
       const nameCellCb = sh.getRange(r, c - 1);
 
-      // ==================================================
-      // 🚫 BLOCCO ASSOLUTO GIORNI FUTURI (ANTI-AGGIRAMENTO)
-      // ==================================================
       const offFuture = (c in checkColToOffset) ? checkColToOffset[c] : null;
       const dataFuture = (offFuture !== null) ? dataDaOffset_(offFuture) : null;
 
@@ -925,7 +937,7 @@ function onEdit(e) {
           "Non puoi modificare checkbox di giorni futuri"
         );
 
-        return; // 🛑 STOP TOTALE
+        return;
       }
 
       if (_isNoPartenza_(nameCellCb.getValue())) {
@@ -961,16 +973,14 @@ function onEdit(e) {
       const lastMem = _cbGet_(nome, r, c);
       const prevWasTrue = wasTrue || (lastMem === "TRUE");
 
-      // ✅ PRIORITÀ ASSOLUTA: GIORNO FUTURO (qualsiasi azione => reset pulito e STOP)
       if (nome === "Settimana Attiva" && dataGiornoC instanceof Date && dataGiornoC > oggi) {
         e.range.clearContent();
         e.range.clearDataValidations();
         e.range.insertCheckboxes();
         e.range.setValue(false);
 
-        try { _setBgCheckboxCorretto_(nome, sh, r, c); } catch (e) {}
-
-        try { SpreadsheetApp.getUi().alert("Non puoi modificare un giorno futuro"); } catch (e) {}
+        try { _setBgCheckboxCorretto_(nome, sh, r, c); } catch (e2) {}
+        try { SpreadsheetApp.getUi().alert("Non puoi modificare un giorno futuro"); } catch (e2) {}
 
         try {
           const giornoLabelF = (c in checkColToOffset) ? _giornoDaOffset_(checkColToOffset[c]) : "";
@@ -990,8 +1000,8 @@ function onEdit(e) {
         const resp = ui.alert(
           "Conferma modifica (giorno passato)",
           `Stai modificando la spunta "Partito" su ${giornoLabelP} ${dataStr} (giorno PASSATO).\n` +
-          (fornP ? `Fornitore: ${fornP}\n\n` : "\n") +
-          "Vuoi davvero procedere?",
+            (fornP ? `Fornitore: ${fornP}\n\n` : "\n") +
+            "Vuoi davvero procedere?",
           ui.ButtonSet.YES_NO
         );
 
@@ -1074,14 +1084,12 @@ function onEdit(e) {
       if (!(dataBase instanceof Date)) return;
 
     } finally {
-      // ✅ STATO SEMPRE
       try {
         if (["Settimana Attiva", "Prossima settimana"].includes(nome)) {
           _UI_STATO_SISTEMA_();
         }
       } catch (err) {}
 
-      // ✅ SNAPSHOT SEMPRE AFFIDABILE (solo 1 cella e solo tabella fornitori)
       try {
         if (["Settimana Attiva", "Prossima settimana"].includes(nome)) {
           const rr2 = e.range;
@@ -1092,12 +1100,9 @@ function onEdit(e) {
           }
         }
 
-        // =========================
-        // 🔧 FIX STILE NOMI FORNITORI (anti-copia/incolla)
-        // =========================
         try {
           const isSingleCell = e.range.getNumRows() === 1 && e.range.getNumColumns() === 1;
-          const isNomeCol = [1, 3, 5, 7, 9, 11].includes(c); // A,C,E,G,I,K
+          const isNomeCol = [1, 3, 5, 7, 9, 11].includes(c);
 
           if (
             isSingleCell &&
@@ -1111,12 +1116,9 @@ function onEdit(e) {
         } catch (eFix) {}
       } catch (e3) {}
 
-      // =========================
-      // 🎨 RIPRISTINO SFONDO CHECKBOX (anti-cella bianca)
-      // =========================
       try {
         const isSingle = e.range.getNumRows() === 1 && e.range.getNumColumns() === 1;
-        const isCkCol = [2,4,6,8,10,12].includes(c);
+        const isCkCol = [2, 4, 6, 8, 10, 12].includes(c);
 
         if (
           isSingle &&
@@ -1126,7 +1128,7 @@ function onEdit(e) {
         ) {
           _setBgCheckboxCorretto_(nome, sh, r, c);
         }
-      } catch (e) {}
+      } catch (e2) {}
     }
 
   });
@@ -1156,6 +1158,197 @@ function _ensureQuickHelpN18Checkbox_(sh, forceFalse) {
   try { cell.setHorizontalAlignment("center").setVerticalAlignment("middle"); } catch (e) {}
 
   return cell;
+}
+
+/****************************************************
+ * Legge lo stato chiusura da "Impostazioni" per una data specifica
+ * Ritorna:
+ * - "" se non c'è chiusura
+ * - "CHIUSO" / "MATTINA CHIUSO" / "POMERIGGIO CHIUSO" se presente
+ ****************************************************/
+function _getStatoChiusuraPerData_(targetDate) {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName("Impostazioni");
+  if (!sh) return "";
+
+  if (!(targetDate instanceof Date)) return "";
+
+  const target = new Date(targetDate);
+  target.setHours(0, 0, 0, 0);
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return "";
+
+  const dati = sh.getRange(2, 1, lastRow - 1, 2).getValues();
+
+  for (let i = 0; i < dati.length; i++) {
+    const data = dati[i][0];
+    const statoRaw = dati[i][1];
+
+    if (!(data instanceof Date)) continue;
+
+    const d = new Date(data);
+    d.setHours(0, 0, 0, 0);
+
+    if (d.getTime() !== target.getTime()) continue;
+
+    const stato = String(statoRaw ?? "").trim().toUpperCase();
+    if (["CHIUSO", "MATTINA CHIUSO", "POMERIGGIO CHIUSO"].includes(stato)) {
+      return stato;
+    }
+    return "";
+  }
+
+  return "";
+}
+
+/****************************************************
+ * Aggiorna visivamente i giorni CHIUSI nel foglio settimana
+ * - usa B2/D2/F2/H2/J2/L2 come celle-segnale per la CF
+ * - scrive "🚫 CHIUSO 🚫" se il giorno è chiuso
+ * - altrimenti ripristina "PARTITO"
+ ****************************************************/
+function _AGGIORNA_CHIUSURE_SU_FOGLIO_SETTIMANA_(sh) {
+  if (!sh) return;
+  const nome = sh.getName();
+  if (!["Settimana Attiva", "Prossima settimana"].includes(nome)) return;
+
+  const base = sh.getRange("M2").getValue();
+  if (!(base instanceof Date)) return;
+
+  const base0 = new Date(base);
+  base0.setHours(0, 0, 0, 0);
+
+  const headerCheckCells = ["B2", "D2", "F2", "H2", "J2", "L2"];
+
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(base0);
+    d.setDate(d.getDate() + i);
+
+    const stato = _getStatoChiusuraPerData_(d);
+    const cell = sh.getRange(headerCheckCells[i]);
+
+    if (["CHIUSO", "MATTINA CHIUSO", "POMERIGGIO CHIUSO"].includes(stato)) {
+      cell
+        .setValue("🚫 CHIUSO 🚫")
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle")
+        .setWrap(true);
+    } else {
+      const cur = String(cell.getValue() ?? "").trim();
+      if (cur === "" || cur === "🚫 CHIUSO 🚫") {
+        cell
+          .setValue("PARTITO")
+          .setFontWeight("bold")
+          .setHorizontalAlignment("center")
+          .setVerticalAlignment("middle")
+          .setWrap(true);
+      }
+    }
+  }
+}
+
+/****************************************************
+ * Blocca modifiche in un giorno segnato CHIUSO
+ * - vale per righe 3:20
+ * - vale per colonne A:L
+ * - mostra popup e ripristina il valore precedente
+ ****************************************************/
+function _BLOCCA_EDIT_GIORNO_CHIUSO_(e, sh, nome, r, c, ui) {
+  try {
+    if (!e || !e.range || !sh) return false;
+    if (!["Settimana Attiva", "Prossima settimana"].includes(nome)) return false;
+    if (r < 3 || r > 20) return false;
+
+    const isNomeCol = [1, 3, 5, 7, 9, 11].includes(c);
+    const isCkCol   = [2, 4, 6, 8, 10, 12].includes(c);
+    if (!isNomeCol && !isCkCol) return false;
+
+    const dataBase = sh.getRange("M2").getValue();
+    if (!(dataBase instanceof Date)) return false;
+
+    const offMap = {
+      1: 0, 2: 0,
+      3: 1, 4: 1,
+      5: 2, 6: 2,
+      7: 3, 8: 3,
+      9: 4, 10: 4,
+      11: 5, 12: 5
+    };
+
+    const off = offMap[c];
+    if (typeof off === "undefined") return false;
+
+    const dataGiorno = new Date(dataBase);
+    dataGiorno.setHours(0, 0, 0, 0);
+    dataGiorno.setDate(dataGiorno.getDate() + off);
+
+    const stato = (typeof _getStatoChiusuraPerData_ === "function")
+      ? _getStatoChiusuraPerData_(dataGiorno)
+      : "";
+
+    // ✅ BLOCCA SOLO il caso CHIUSO totale
+    if (stato !== "CHIUSO") return false;
+
+    const giornoLabel = (typeof _giornoDaOffset_ === "function")
+      ? _giornoDaOffset_(off)
+      : "Giorno";
+
+    const dataStr = Utilities.formatDate(
+      dataGiorno,
+      Session.getScriptTimeZone(),
+      "dd/MM/yyyy"
+    );
+
+    ui.alert(
+      "⛔ Giorno chiuso",
+      `${giornoLabel} ${dataStr} risulta segnato come "CHIUSO" in Impostazioni.\n\n` +
+      "Non puoi inserire fornitori o modificare spunte in un giorno chiuso.",
+      ui.ButtonSet.OK
+    );
+
+    if (isNomeCol) {
+      if (typeof e.oldValue !== "undefined") {
+        try { e.range.setValue(e.oldValue); } catch (err) {}
+      } else {
+        try { e.range.clearContent(); } catch (err) {}
+      }
+
+      try {
+        const cbCell = sh.getRange(r, c + 1);
+        cbCell.clearContent();
+        cbCell.clearDataValidations();
+        const nomeAttuale = String(e.range.getValue() ?? "").trim();
+        if (nomeAttuale !== "") {
+          cbCell.insertCheckboxes();
+          cbCell.setValue(false);
+          _setBgCheckboxCorretto_(nome, sh, r, c + 1);
+        }
+      } catch (err) {}
+    }
+
+    if (isCkCol) {
+      try { e.range.clearContent(); } catch (err) {}
+      try { e.range.clearDataValidations(); } catch (err) {}
+      try { e.range.insertCheckboxes(); } catch (err) {}
+      try { e.range.setValue(false); } catch (err) {}
+      try { _cbSet_(nome, r, c, false); } catch (err) {}
+      try { _setBgCheckboxCorretto_(nome, sh, r, c); } catch (err) {}
+    }
+
+    try {
+      const forn = isCkCol
+        ? String(sh.getRange(r, c - 1).getValue() ?? "").replace(/\u00A0/g, " ").trim()
+        : String(e.range.getValue() ?? "").replace(/\u00A0/g, " ").trim();
+
+      _logSafe_("BLOCCO GIORNO CHIUSO", forn, nome, `${giornoLabel} | CHIUSO`);
+    } catch (err) {}
+
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 /**********************
@@ -2733,6 +2926,63 @@ function _bannerArchiviazioneAggiorna_() {
   try { _aiutoArchiviazione_SetHidden_(false); } catch (e) {}
 }
 
+function _SCRIVI_HEADER_E_CHIUSURE_SETTIMANA_(sh) {
+  if (!sh) return;
+  const nome = sh.getName();
+  if (!["Settimana Attiva", "Prossima settimana"].includes(nome)) return;
+
+  const base = sh.getRange("M2").getValue();
+  if (!(base instanceof Date)) return;
+
+  const base0 = new Date(base);
+  base0.setHours(0, 0, 0, 0);
+
+  const oggi = new Date();
+  oggi.setHours(0, 0, 0, 0);
+
+  const dayCells = ["A2", "C2", "E2", "G2", "I2", "K2"];
+  const sideCells = ["B2", "D2", "F2", "H2", "J2", "L2"];
+  const dayNames = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ", "VENERDÌ", "SABATO"];
+  const tz = Session.getScriptTimeZone();
+
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(base0);
+    d.setDate(d.getDate() + i);
+
+    const ddmm = Utilities.formatDate(d, tz, "dd/MM");
+    const isToday = (d.getTime() === oggi.getTime());
+
+    const stato = (typeof _getStatoChiusuraPerData_ === "function")
+      ? _getStatoChiusuraPerData_(d)
+      : "";
+
+    const headerBase = isToday
+      ? `▶️ OGGI – ${dayNames[i]} ${ddmm} ◀️`
+      : `${dayNames[i]} ${ddmm}`;
+
+    let suffix = "";
+    if (stato === "CHIUSO") suffix = "🚫 CHIUSO 🚫";
+    if (stato === "MATTINA CHIUSO") suffix = "🚫 MATT. CHIUSO 🚫";
+    if (stato === "POMERIGGIO CHIUSO") suffix = "🚫 POMER. CHIUSO 🚫";
+
+    const finalText = suffix ? `${headerBase}\n${suffix}` : headerBase;
+
+    sh.getRange(dayCells[i])
+      .setValue(finalText)
+      .setFontWeight("bold")
+      .setHorizontalAlignment("center")
+      .setVerticalAlignment("middle")
+      .setWrap(true);
+
+    // Celle pari sempre vuote: niente più "PARTITO"
+    sh.getRange(sideCells[i])
+      .clearContent()
+      .setHorizontalAlignment("center")
+      .setVerticalAlignment("middle")
+      .setWrap(true);
+  }
+}
+
 /**
  * Crea/aggiorna il foglio AIUTO:
  * - Contiene PRIMA le istruzioni per archiviare (promemoria)
@@ -4144,33 +4394,55 @@ function HARD_FIX_INVALID_CHECKBOXES_() {
   } catch (e) {}
 }
 
+function _logSafe_(azione, fornitore, sheetName, giornoLabel) {
+  try {
+    const extra = `${sheetName}${giornoLabel ? " | " + giornoLabel : ""}`;
+    logOperativo_(azione, fornitore || "", extra);
+  } catch (e) {}
+}
+
 /****************************************************
  * LOG OPERATIVO
- * Foglio: LogOperativo
- * Intestazione riga 1: Timestamp | Utente | Azione | Fornitore | Giorno
  ****************************************************/
-function logOperativo_(azione, fornitore, giorno) {
-  const ss = SpreadsheetApp.getActive();
-  const sh = ss.getSheetByName("Log Operativo") || ss.getSheetByName("LogOperativo");
-  if (!sh) return; // se manca, non blocchiamo nulla
+function _getLogOperativoSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // opzionale: crea intestazione se non corretta
+  const directNames = ["Log Operativo", "LogOperativo"];
+  for (const n of directNames) {
+    const sh = ss.getSheetByName(n);
+    if (sh) return sh;
+  }
+
+  const norm = s => String(s || "").toLowerCase().replace(/[\s_-]+/g, "");
+  const target = "logoperativo";
+  const all = ss.getSheets();
+  for (const sh of all) {
+    if (norm(sh.getName()) === target) return sh;
+  }
+
+  const created = ss.insertSheet("Log Operativo");
+  try { created.setFrozenRows(1); } catch (e) {}
+  return created;
+}
+
+function logOperativo_(azione, fornitore, giorno) {
+  const sh = _getLogOperativoSheet_();
+  if (!sh) return;
+
+  const headerValues = ["Timestamp", "Utente", "Azione", "Fornitore", "Giorno"];
   const header = sh.getRange(1, 1, 1, 5).getValues()[0];
-  const ok =
-    header[0] === "Timestamp" &&
-    header[1] === "Utente" &&
-    header[2] === "Azione" &&
-    header[3] === "Fornitore" &&
-    header[4] === "Giorno";
+  const ok = header.join("|") === headerValues.join("|");
+
   if (!ok) {
-    sh.getRange(1, 1, 1, 5).setValues([["Timestamp", "Utente", "Azione", "Fornitore", "Giorno"]]);
+    sh.getRange(1, 1, 1, 5).setValues([headerValues]);
     sh.getRange(1, 1, 1, 5).setFontWeight("bold");
   }
 
   const ts = new Date();
-  const utente = (typeof getOperatoreCorrente_ === "function")
-  ? getOperatoreCorrente_()
-  : "Utente non rilevabile";
 
-  sh.appendRow([ts, utente, azione, fornitore || "", giorno || ""]);
+  const utente = (typeof getOperatoreCorrente_ === "function")
+    ? getOperatoreCorrente_()
+    : "Utente non rilevabile";
+
+  sh.appendRow([ts, utente, azione || "", fornitore || "", giorno || ""]);
 }
