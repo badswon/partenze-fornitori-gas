@@ -52,6 +52,83 @@ function AggiornaOggiGiornaliero() {
   try { RIPRISTINA_EVIDENZIA_OGGI(); } catch (e) {}
 }
 
+function DEBUG_CHIUSURA_OGGI() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName("Impostazioni");
+  if (!sh) {
+    Logger.log("ERRORE: manca il foglio Impostazioni");
+    return;
+  }
+
+  const oggi = new Date();
+  oggi.setHours(0, 0, 0, 0);
+
+  Logger.log("OGGI = " + oggi + " | ms=" + oggi.getTime());
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) {
+    Logger.log("NESSUN DATO in Impostazioni");
+    return;
+  }
+
+  const dati = sh.getRange(2, 1, lastRow - 1, 2).getValues();
+
+  for (let i = 0; i < dati.length; i++) {
+    const data = dati[i][0];
+    const statoRaw = dati[i][1];
+
+    Logger.log(
+      "RIGA " + (i + 2) +
+      " | data=" + data +
+      " | type=" + Object.prototype.toString.call(data) +
+      " | stato=[" + statoRaw + "]"
+    );
+
+    if (!(data instanceof Date)) continue;
+
+    const d = new Date(data);
+    d.setHours(0, 0, 0, 0);
+
+    if (d.getTime() === oggi.getTime()) {
+      const stato = String(statoRaw ?? "").trim().toUpperCase();
+      Logger.log(">>> MATCH OGGI TROVATO in riga " + (i + 2) + " | stato normalizzato=[" + stato + "]");
+      return;
+    }
+  }
+
+  Logger.log(">>> NESSUNA RIGA CORRISPONDE A OGGI");
+}
+
+function TEST_CREA_PROSSIMA_ASSENTE() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  Logger.log("PRIMA: esiste Prossima settimana? " + !!ss.getSheetByName("Prossima settimana"));
+
+  try {
+    const res = creaProssimaSettimana_Silent_();
+    Logger.log("RISULTATO creaProssimaSettimana_Silent_: " + res);
+  } catch (e) {
+    Logger.log("ERRORE creaProssimaSettimana_Silent_: " + (e && e.message ? e.message : e));
+  }
+
+  Logger.log("DOPO: esiste Prossima settimana? " + !!ss.getSheetByName("Prossima settimana"));
+}
+
+function TEST_CREA_PROSSIMA_DIAGNOSI() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  Logger.log("PRIMA: esiste Prossima settimana? " + !!ss.getSheetByName("Prossima settimana"));
+
+  try {
+    const res = creaProssimaSettimana_Silent_();
+    Logger.log("RISULTATO creaProssimaSettimana_Silent_: " + res);
+  } catch (e) {
+    Logger.log("ERRORE creaProssimaSettimana_Silent_: " + (e && e.message ? e.message : e));
+  }
+
+  Logger.log("DOPO: esiste Prossima settimana? " + !!ss.getSheetByName("Prossima settimana"));
+}
+
 function TEST_CREA_PROSSIMA_SILENT() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
